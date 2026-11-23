@@ -182,7 +182,8 @@
     "micro_batch_trigger": 512,
     "replay_buffer_capacity": 8192,
     "validation_fraction": 0.2,
-    "epochs_per_round": 2
+    "epochs_per_round": 2,
+    "tree_context_events": 16
   },
   "ordering": {
     "max_out_of_order_seconds": 5

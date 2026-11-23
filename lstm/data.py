@@ -47,7 +47,8 @@ def build_samples(seqs: dict[str, list[dict]], engine: FeatureEngine) -> list[Sa
     for exec_id, seq in seqs.items():
         parent_id = seq[0]["process"].get("parent_exec_id", "")
         pseq = seqs.get(parent_id) if parent_id else None
-        ctx = pseq[-16:] if pseq else []
+        ctx_n = engine.schema["training"].get("tree_context_events", 16)
+        ctx = pseq[-ctx_n:] if pseq else []
         combined = ctx + seq
         if len(combined) < 2:
             continue

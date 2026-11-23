@@ -84,13 +84,16 @@ class StreamInferencer:
         st = self.states.get(exec_id)
         if st is None:
             st = ProcState(self.engine.seq_len)
-            # Process Tree Context(v1.0 §4):子进程继承父进程当前 LSTM 状态与预测,
-            # 使派生链(python→sh→nc)的第一个事件也可评分,攻击链检测不留盲区。
+            # Process Tree Context(v1.0 §4):用父进程最近 N 个事件从零状态重放,
+            # 初始化子进程状态——与训练样本的 ctx 构造完全一致(继承全量历史 hidden
+            # 会造成训练/推理分布失配, birth 评分不校准)。
             parent = self.states.get(ev["process"].get("parent_exec_id", ""))
-            if parent is not None and parent.hidden is not None:
-                st.hidden = tuple(t.clone() for t in parent.hidden)
-                if parent.pending is not None:
-                    st.pending = parent.pending.clone()
+            if parent is not None and parent.buffer:
+                ctx_n = self.engine.schema["training"].get("tree_context_events", 16)
+                logits = None
+                for cat, num in list(parent.buffer)[-ctx_n:]:
+                    logits, st.hidden = self.model.step(cat, num, st.hidden)
+                st.pending = logits
             self.states[exec_id] = st
         record = None
         if st.pending is not None:
