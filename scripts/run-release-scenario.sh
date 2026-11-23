@@ -72,8 +72,11 @@ PY
     --registry models/release --decision "data/decision-release-$MODE.json" \
     --evidence "data/evidence-release-$MODE.json"
   # 决策注入 pod(下游门禁消费 ABIP 决策——P3 模式)
-  kubectl -n $NS exec "$NAME" -- sh -c 'cat > /workspace/decision.json' \
+  kubectl -n $NS exec -i "$NAME" -- sh -c 'cat > /workspace/decision.json' \
     < "data/decision-release-$MODE.json"
+  # 确认决策真的送达(空文件=静默失败)
+  kubectl -n $NS exec "$NAME" -- cat /workspace/decision.json | grep -q action \
+    || echo "WARN: decision not delivered to $NAME"
   # 等 pod 结束(baseline Succeeded / attack 被拦 Failed)
   local i=0 phase=Running
   while [ $i -lt 60 ]; do
