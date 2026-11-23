@@ -90,6 +90,8 @@ PID 重用防护:进程 exit 后关闭状态;新 exec_id 开新状态,不复用�
 - LSTM 2 层,hidden 128,序列窗口 64,batch 128,AdamW lr 1e-4,CrossEntropy。
 - 异常分 = -log P(实际事件类别)。这只是异常信号,不等于恶意概率。
 - 训练样本自监督:E1..E63 → 预测 E2..E64;绝不把模型自身预测当标签。
+- 进程树上下文(v1.0 §4):子进程继承父进程当前 Hidden State 与待评分预测,
+  派生链(python→sh→nc)的第一个事件也可评分——攻击链检测在进程诞生处不留盲区。
 
 ### Champion / Challenger
 

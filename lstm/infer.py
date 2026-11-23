@@ -102,6 +102,10 @@ class StreamInferencer:
             flags = []
             if kind == "capability_change":
                 flags.append("capability_change")
+            # 类别头只预测事件类别,区分不了 nc 和 ls(都是 process_exec);
+            # profile 之外的未知二进制是确定性信号(RFC 0001)。
+            if self.engine.vocab["binary"].get(ev["process"].get("binary", ""), 0) == 0:
+                flags.append("unknown_binary")
             if self.engine.resource_class(ev) == "sensitive":
                 flags.append("sensitive_resource")
             if self.engine.dest_port_class(ev)[0] == "external":

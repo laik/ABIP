@@ -37,13 +37,30 @@ def load_sequences(path: str) -> dict[str, list[dict]]:
 
 
 def build_samples(seqs: dict[str, list[dict]], engine: FeatureEngine) -> list[Sample]:
-    """每个进程序列切成 ≤seq_len 的窗口;不足 2 个事件的序列没有监督信号,跳过。"""
+    """进程序列 → ≤seq_len 窗口样本。
+
+    进程树上下文(与 infer.py 的继承对齐):子进程样本前置父进程最近 16 个事件,
+    边界标签 = 子进程第一个事件——训练"父上下文 → 子进程诞生"这一转移,
+    否则推理端的继承评分未经训练、不校准。子进程首事件 time_delta=0(与推理一致)。
+    """
     samples = []
-    for seq in seqs.values():
-        if len(seq) < 2:
+    for exec_id, seq in seqs.items():
+        parent_id = seq[0]["process"].get("parent_exec_id", "")
+        pseq = seqs.get(parent_id) if parent_id else None
+        ctx = pseq[-16:] if pseq else []
+        combined = ctx + seq
+        if len(combined) < 2:
             continue
         cats, nums, types, tss = [], [], [], []
         prev = None
+        for ev in ctx:
+            c, n = engine.tensors(ev, prev)
+            cats.append(c)
+            nums.append(n)
+            types.append(engine.vocab["event_type"].get(ev["event"]["type"], 0))
+            prev = parse_ts(ev["event_time"])
+            tss.append(prev)
+        prev = None  # 子进程独立计时,首事件 delta=0
         for ev in seq:
             c, n = engine.tensors(ev, prev)
             cats.append(c)
@@ -51,8 +68,8 @@ def build_samples(seqs: dict[str, list[dict]], engine: FeatureEngine) -> list[Sa
             types.append(engine.vocab["event_type"].get(ev["event"]["type"], 0))
             prev = parse_ts(ev["event_time"])
             tss.append(prev)
-        for start in range(0, len(seq) - 1, engine.seq_len):
-            stop = min(start + engine.seq_len, len(seq))
+        for start in range(0, len(combined) - 1, engine.seq_len):
+            stop = min(start + engine.seq_len, len(combined))
             if stop - start < 2:
                 continue
             L = stop - start
