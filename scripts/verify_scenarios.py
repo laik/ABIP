@@ -13,17 +13,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lstm.infer import StreamInferencer  # noqa: E4202
 from lstm.train import run as train_run  # noqa: E4202
 
-SENSITIVE = ["/etc/shadow", "/root/.ssh", "/var/run/secrets", "/etc/sudoers"]
-EXTERNAL = "203.0.113.9"
+# RFC 0002 场景规格:签名按场景声明,验证器统一消费
+SIGNATURES = {
+    "default": {"paths": ["/etc/shadow", "/root/.ssh", "/var/run/secrets", "/etc/sudoers"],
+                "binaries": ["nc"], "dests": ["203.0.113.9"]},
+    "supply": {"paths": [], "binaries": ["evil"], "dests": ["203.0.113.9"]},
+    "persist": {"paths": ["/etc/cron", "/root/.ssh"], "binaries": [".hidden"], "dests": []},
+    "lateral": {"paths": ["/proc/net"], "binaries": ["nc"], "dests": []},
+}
 
 
-def is_signature(ev: dict) -> bool:
+def is_signature(ev: dict, sig: dict) -> bool:
     res = ev["event"].get("resource", "")
     binary = ev["process"].get("binary", "")
     return (
-        any(s in res for s in SENSITIVE)
-        or res.startswith(EXTERNAL)
-        or binary == "nc"
+        any(s in res for s in sig["paths"])
+        or any(res.startswith(d) for d in sig["dests"])
+        or binary in sig["binaries"]
     )
 
 
@@ -33,7 +39,9 @@ def main():
     ap.add_argument("--attack", required=True)
     ap.add_argument("--registry", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--scenario", default="default")
     args = ap.parse_args()
+    sig = SIGNATURES.get(args.scenario, SIGNATURES["default"])
 
     train_run(args.baseline, args.registry)
 
@@ -52,10 +60,10 @@ def main():
             inf.feed(ev)
     attack_recs = inf.records[n_base:]
 
-    sig_recs = [r for r in attack_recs if is_signature(attack_evs[r["event_id"]])]
-    nc_execs = [
+    sig_recs = [r for r in attack_recs if is_signature(attack_evs[r["event_id"]], sig)]
+    chain_execs = [
         r for r in sig_recs
-        if attack_evs[r["event_id"]]["process"].get("binary") == "nc"
+        if attack_evs[r["event_id"]]["process"].get("binary") in sig["binaries"]
         and attack_evs[r["event_id"]]["event"]["type"] == "process_exec"
     ]
     # 两层检测覆盖(RFC 0001):每个攻击签名事件至少被一层命中——
@@ -95,8 +103,8 @@ def main():
             ]),
             "risk_context_coverage": mean([bool(r["risk_context"]) for r in sig_recs]),
             "mean_anomaly_signature": mean([r["anomaly_score"] for r in sig_recs]),
-            "nc_exec_anomaly": mean([r["anomaly_score"] for r in nc_execs]),
-            "nc_exec_flags": [r["risk_context"] for r in nc_execs],
+            "chain_exec_anomaly": mean([r["anomaly_score"] for r in chain_execs]),
+            "chain_exec_flags": [r["risk_context"] for r in chain_execs],
         },
         "false_positive_passwd_as_sensitive": fp,
         "gates": {},

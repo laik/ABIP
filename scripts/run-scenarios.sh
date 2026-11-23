@@ -74,23 +74,25 @@ for S in ${SCENARIOS:-coding data ops}; do
   rm -rf "models/scenario-$S"
   $PY scripts/verify_scenarios.py \
     --baseline "data/norm-$S-baseline.jsonl" --attack "data/norm-$S-attack.jsonl" \
-    --registry "models/scenario-$S" --out "data/scenario-$S-report.json" > "data/scenario-$S-verify.log" 2>&1 \
+    --registry "models/scenario-$S" --scenario "$S" --out "data/scenario-$S-report.json" > "data/scenario-$S-verify.log" 2>&1 \
     || { echo "verify failed, see data/scenario-$S-verify.log"; tail -5 "data/scenario-$S-verify.log"; }
 done
 
 $PY - <<'PY'
 import json
 summary = {}
-for s in ("coding", "data", "ops"):
+import glob, os
+for f in sorted(glob.glob("data/scenario-*-report.json")):
+    s = os.path.basename(f)[len("scenario-"):-len("-report.json")]
     try:
-        r = json.load(open(f"data/scenario-{s}-report.json"))
+        r = json.load(open(f))
         summary[s] = {"passed": r["passed"], "gates": r["gates"],
                       "baseline_top3": round(r["baseline"]["top3"], 3),
                       "risk_coverage": r["attack"]["risk_context_coverage"],
-                      "nc_exec_anomaly": round(r["attack"]["nc_exec_anomaly"], 3),
+                      "chain_exec_anomaly": round(r["attack"]["chain_exec_anomaly"], 3),
                       "baseline_p90": round(r["baseline"]["anomaly_p90"], 3)}
-    except FileNotFoundError:
-        summary[s] = {"passed": False, "error": "no report"}
+    except (KeyError, ValueError):
+        summary[s] = {"passed": False, "error": "bad report"}
 json.dump(summary, open("data/scenario-report.json", "w"), indent=2)
 print(json.dumps(summary, indent=2))
 print("ALL PASSED" if all(v.get("passed") for v in summary.values()) else "SOME GATES FAILED")

