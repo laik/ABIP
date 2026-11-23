@@ -153,6 +153,11 @@ pod 标签选择观测。复现见 §6。
 攻击签名事件(/etc/shadow、SA token、/root/.ssh、sudoers 持久化、nc 外联链、
 203.0.113.9 外传)全部被至少一层命中;sensitive/external/unknown_binary 标记留证。
 
+扩展场景(RFC 0002 规格):S5 supply-chain Top-3 0.902、S6 persistence 0.928、
+S7 lateral 0.921,两层覆盖均 1.0,全部通过。变异覆盖矩阵见
+[RFC 0002 §6](0002-scenario-standard-and-mutation-coverage.md):确定性四维 7 profile
+全覆盖 1.00,盲测检出 1.0;时间/序列维度为已记录缺口。
+
 ### S4 拦截闭环
 
 | 运行 | ABIP 决策 | 门禁执行 | 结论 |

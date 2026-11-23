@@ -49,7 +49,8 @@ feeds Jev in P3. Deterministic rules take precedence over model judgment.
 | LSTM training / inference / incremental / Champion-Challenger | ✅ selfcheck + demo |
 | Hot-swap + state rebuild + rollback | ✅ selfcheck |
 | TracingPolicy (real Tetragon v1.8.0 / k8s v1.37 cluster) | ✅ verified 2026-11-23, real-stream Top-1 0.813 / Top-3 0.948 |
-| OpenShell agent scenarios (RFC 0001: coding/data/ops + release-pipeline interception) | ✅ all passed, Top-3 0.94+, attack coverage 1.0, transfer publish BLOCKED |
+| OpenShell agent scenarios (RFC 0001/0002: coding/data/ops/supply/persist/lateral + release-pipeline interception) | ✅ all passed, Top-3 0.90+, attack coverage 1.0, transfer publish BLOCKED |
+| Mutation coverage engine (RFC 0002: 8 deviation dims + blind, 7 real profiles) | ✅ deterministic dims 1.00, blind 1.0; timing/sequence gaps documented |
 | kind scripts | ⚠️ provided, unexercised (real cluster already existed) |
 | Jev / Decision Controller / multi-tenancy / OTEL | ⏭ P3/P4, not implemented |
 
