@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "abip/behavior-event-v1",
+  "title": "ABIP unified runtime behavior event",
+  "description": "Collector 输出、训练/推理输入的统一事件格式(v1.0 §3.3)。raw 保留原始 Tetragon payload 用于审计与特征重建。",
+  "type": "object",
+  "required": ["event_id", "event_time", "tenant_id", "process", "event"],
+  "properties": {
+    "event_id": { "type": "string", "description": "去重后的唯一事件 ID" },
+    "event_time": { "type": "string", "format": "date-time" },
+    "cluster_id": { "type": "string" },
+    "tenant_id": { "type": "string", "description": "POC 中等于 pod namespace" },
+    "namespace": { "type": "string" },
+    "pod_uid": { "type": "string" },
+    "container_id": { "type": "string" },
+    "process": {
+      "type": "object",
+      "required": ["exec_id", "parent_exec_id", "pid", "binary"],
+      "properties": {
+        "exec_id": { "type": "string", "description": "进程实例唯一身份,不用 PID" },
+        "parent_exec_id": { "type": "string" },
+        "pid": { "type": "integer" },
+        "binary": { "type": "string", "description": "basename,如 python3" },
+        "parent_binary": { "type": "string", "description": "Collector 从进程树补全" },
+        "depth": { "type": "integer", "description": "Collector 从进程树计算的树深" },
+        "uid": { "type": "integer" },
+        "cwd": { "type": "string" },
+        "start_time": { "type": "string" }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["category", "type"],
+      "properties": {
+        "category": { "enum": ["process", "file", "network", "security"] },
+        "type": { "type": "string", "description": "feature-schema-v1 的 event_type 词表,未知归 unknown" },
+        "operation": { "type": "string" },
+        "resource_type": { "type": "string" },
+        "resource": { "type": "string", "description": "原始路径或 addr:port;类别化由 Python Feature Engine 统一完成" }
+      }
+    },
+    "late": { "type": "boolean", "description": "超过最大乱序窗口的迟到事件;推理端只记录不更新 Hidden State" },
+    "raw": { "type": "object", "description": "原始 Tetragon payload" }
+  }
+}

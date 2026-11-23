@@ -1,0 +1,28 @@
+# ABIP P0 TracingPolicy:文件 / 网络 / 权限。
+# 注意:Tetragon 默认只有进程生命周期事件,文件/网络/权限必须像这样显式配置 Hook。
+# 生产环境应加 selectors(matchNamespaces / matchBinaries)限定范围,否则事件量巨大。
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: abip-file-network-security
+spec:
+  kprobes:
+    - call: "sys_openat"
+      syscall: true
+      args:
+        - index: 1
+          type: "string"
+    # shortcut: file_write 暂不采集(sys_write 的 arg 是缓冲区不是路径,需要 fd→path 解析),
+    # POC 用 file_open 覆盖文件行为;升级时加 fd 解析或改用 security_file_permission hook。
+    - call: "tcp_connect"
+      syscall: false
+      args:
+        - index: 0
+          type: "sock"
+    - call: "sys_setuid"
+      syscall: true
+      args:
+        - index: 0
+          type: "int"
+    - call: "commit_creds"
+      syscall: false

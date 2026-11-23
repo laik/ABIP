@@ -1,0 +1,6 @@
+.venv/
+data/
+models/
+collector/target/
+__pycache__/
+*.pyc

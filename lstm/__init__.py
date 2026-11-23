@@ -1,0 +1,1 @@
+"""ABIP LSTM:训练与推理共用同一份模型定义、Feature Schema 与预处理逻辑。"""

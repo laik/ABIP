@@ -1,0 +1,189 @@
+"""LSTM 在线推理:逐事件预测下一事件、与实际对比、异常分、状态管理与模型热切换。
+
+用法:python -m lstm.infer --events data/events.jsonl --registry models/registry \
+        --out data/predictions.jsonl --report data/report.json [--truth data/anomaly-truth.jsonl]
+
+规则(v1.0 §6.4/§6.6):
+- 每个 exec_id 独立 Hidden State + 最近 seq_len 事件环形缓冲。
+- late 事件只记录、不更新 Hidden State。
+- process_exit 后关闭状态(PID 重用走新 exec_id)。
+- Champion 版本变化 → 加载新权重 → 用缓冲重放重建所有状态,旧状态不交给新模型。
+"""
+
+import argparse
+import json
+from collections import deque
+from pathlib import Path
+
+import torch
+
+from .features import FeatureEngine, parse_ts
+from .model import anomaly_score
+from .registry import Registry
+
+
+class ProcState:
+    __slots__ = ("hidden", "last_ts", "buffer", "pending")
+
+    def __init__(self, seq_len):
+        self.hidden = None
+        self.last_ts = None
+        self.buffer = deque(maxlen=seq_len)  # (cat, num) 编码后事件,用于模型切换重放
+        self.pending = None  # 上一步对"下一事件"的预测分布
+
+
+class StreamInferencer:
+    def __init__(self, registry_root: str, truth_path: str | None = None):
+        self.engine = FeatureEngine()
+        self.reg = Registry(registry_root, self.engine.schema)
+        loaded = self.reg.champion()
+        if loaded is None:
+            raise SystemExit("registry 里没有 Champion,先运行 python -m lstm.train")
+        self.model, self.meta = loaded
+        self.version = self.meta["version"]
+        self.type_names = self.engine.schema["categorical"]["event_type"]  # index → token
+        self.states: dict[str, ProcState] = {}
+        self.records = []
+        self.late_skipped = 0
+        self.rebuilds = 0
+        self.switches = []
+        self.truth = {}
+        if truth_path:
+            with open(truth_path) as f:
+                for line in f:
+                    t = json.loads(line)
+                    self.truth[(t["exec_id"], t["event_time"])] = t["type"]
+
+    def _maybe_switch(self):
+        v = self.reg.champion_version()
+        if v == self.version:
+            return
+        self.model, self.meta = self.reg.load(v)
+        self.switches.append({"from": self.version, "to": v})
+        self.version = v
+        # 旧 Hidden State 不能交给新模型:用每个进程的事件缓冲重放重建。
+        for st in self.states.values():
+            st.hidden = None
+            st.pending = None
+            for cat, num in st.buffer:
+                logits, st.hidden = self.model.step(cat, num, st.hidden)
+            st.pending = logits if st.buffer else None
+            self.rebuilds += 1
+
+    def feed(self, ev: dict) -> dict | None:
+        self._maybe_switch()
+        exec_id = ev["process"]["exec_id"]
+        kind = ev["event"]["type"]
+        actual = self.engine.vocab["event_type"].get(kind, 0)
+        ts = parse_ts(ev["event_time"])
+
+        if ev.get("late"):
+            self.late_skipped += 1
+            return None
+
+        st = self.states.get(exec_id)
+        record = None
+        if st is not None and st.pending is not None:
+            probs = torch.softmax(st.pending, dim=-1)
+            top3 = probs.topk(min(3, probs.shape[-1])).indices.tolist()
+            score = anomaly_score(st.pending, actual)
+            # 确定性 Risk Context(v1.0 §7.2 风险触发信号):敏感资源/外联/权限变化
+            # 不依赖 LSTM 惊讶度,确定性规则优先于模型判断。
+            flags = []
+            if kind == "capability_change":
+                flags.append("capability_change")
+            if self.engine.resource_class(ev) == "sensitive":
+                flags.append("sensitive_resource")
+            if self.engine.dest_port_class(ev)[0] == "external":
+                flags.append("external_destination")
+            key = (exec_id, ev["event_time"])
+            record = {
+                "event_id": ev["event_id"],
+                "exec_id": exec_id,
+                "event_time": ev["event_time"],
+                "actual": kind,
+                "predicted": self.type_names[int(probs.argmax())],
+                "top3": [self.type_names[i] for i in top3],
+                "prob_actual": float(probs[actual]),
+                "anomaly_score": score,
+                "correct": int(probs.argmax()) == actual,
+                "top3_hit": actual in top3,
+                "model_version": self.version,
+                "risk_context": flags,
+                "is_anomaly_truth": key in self.truth,
+                "truth_type": self.truth.get(key),
+            }
+            self.records.append(record)
+
+        if st is None:
+            st = ProcState(self.engine.seq_len)
+            self.states[exec_id] = st
+        cat, num = self.engine.tensors(ev, st.last_ts)
+        logits, st.hidden = self.model.step(cat, num, st.hidden)
+        st.buffer.append((cat, num))
+        st.last_ts = ts
+        st.pending = logits
+
+        if kind == "process_exit":
+            del self.states[exec_id]  # 退出关闭状态
+        return record
+
+    def report(self) -> dict:
+        scored = [r for r in self.records if r["prob_actual"] > 0]
+        n = len(scored)
+        anom = [r["anomaly_score"] for r in scored]
+        anom_sorted = sorted(anom)
+        p90 = anom_sorted[int(n * 0.9)] if n else 0.0
+        truth_recs = [r for r in scored if r["is_anomaly_truth"]]
+        truth_scores = [r["anomaly_score"] for r in truth_recs]
+        normal_scores = [r["anomaly_score"] for r in scored if not r["is_anomaly_truth"]]
+        mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
+        recall_by_type = {}
+        for tt in {r["truth_type"] for r in truth_recs}:
+            scores = [r["anomaly_score"] for r in truth_recs if r["truth_type"] == tt]
+            recall_by_type[tt] = mean([s > p90 for s in scores])
+        return {
+            "events_scored": n,
+            "top1_accuracy": mean([r["correct"] for r in scored]),
+            "top3_accuracy": mean([r["top3_hit"] for r in scored]),
+            "mean_cross_entropy": mean(anom),
+            "anomaly_score_p90": p90,
+            "anomaly_recall_at_p90": (
+                mean([s > p90 for s in truth_scores]) if truth_scores else None
+            ),
+            "lstm_recall_by_anomaly_type": recall_by_type,
+            # 确定性 Risk Context 覆盖率:敏感资源/外联/权限变化靠规则,不靠惊讶度
+            "risk_context_coverage": mean([bool(r["risk_context"]) for r in truth_recs]),
+            "mean_anomaly_truth": mean(truth_scores),
+            "mean_anomaly_normal": mean(normal_scores),
+            "late_skipped": self.late_skipped,
+            "model_switches": self.switches,
+            "states_rebuilt": self.rebuilds,
+            "live_states": len(self.states),
+            "final_model_version": self.version,
+            "feature_schema": self.engine.version,
+        }
+
+
+def run(events_path, registry_root, out_path, report_path, truth_path=None):
+    inf = StreamInferencer(registry_root, truth_path)
+    with open(events_path) as f, open(out_path, "w") as out:
+        for line in f:
+            rec = inf.feed(json.loads(line))
+            if rec:
+                out.write(json.dumps(rec) + "\n")
+    report = inf.report()
+    Path(report_path).write_text(json.dumps(report, indent=2))
+    print(json.dumps(report, indent=2))
+    return report
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--events", required=True)
+    ap.add_argument("--registry", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--report", required=True)
+    ap.add_argument("--truth", default=None)
+    args = ap.parse_args()
+    run(args.events, args.registry, args.out, args.report, args.truth)
