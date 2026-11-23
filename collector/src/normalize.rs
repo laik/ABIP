@@ -136,9 +136,15 @@ pub fn normalize(raw: &Value, cluster_id: &str) -> Option<Event> {
             },
         )
     } else if let Some(p) = raw.get("process_kprobe") {
-        let function = s(p, "function_name");
+        let fname = s(p, "function_name");
+        // 真实 Tetragon 上报解析后的符号名,如 __x64_sys_openat / __arm64_sys_openat。
+        let function = fname
+            .strip_prefix("__x64_")
+            .or_else(|| fname.strip_prefix("__arm64_"))
+            .or_else(|| fname.strip_prefix("__ia32_"))
+            .unwrap_or(&fname);
         let args = p.get("args").cloned().unwrap_or(Value::Null);
-        (p, kprobe_mapping(&function, &args))
+        (p, kprobe_mapping(function, &args))
     } else {
         return None;
     };
@@ -292,6 +298,18 @@ mod tests {
         let ev = normalize(&raw, "c1").unwrap();
         assert_eq!(ev.event.kind, "network_connect");
         assert_eq!(ev.event.resource, "203.0.113.9:443");
+    }
+
+    #[test]
+    fn strips_arch_prefix_from_real_tetragon_symbols() {
+        let raw = json!({"process_kprobe": {
+            "process": {"exec_id": "e1", "binary": "/bin/cat", "pid": 1},
+            "function_name": "__x64_sys_openat",
+            "args": [{"string_arg": "/etc/hostname"}]
+        }, "time": "2026-11-22T10:00:01Z"});
+        let ev = normalize(&raw, "c1").unwrap();
+        assert_eq!(ev.event.kind, "file_open");
+        assert_eq!(ev.event.resource, "/etc/hostname");
     }
 
     #[test]
