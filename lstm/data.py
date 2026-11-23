@@ -36,56 +36,80 @@ def load_sequences(path: str) -> dict[str, list[dict]]:
     return seqs
 
 
-def build_samples(seqs: dict[str, list[dict]], engine: FeatureEngine) -> list[Sample]:
-    """进程序列 → ≤seq_len 窗口样本。
+def _encode(events, engine, prev=None):
+    cats, nums, types, tss = [], [], [], []
+    for ev in events:
+        c, n = engine.tensors(ev, prev)
+        cats.append(c)
+        nums.append(n)
+        types.append(engine.vocab["event_type"].get(ev["event"]["type"], 0))
+        prev = parse_ts(ev["event_time"])
+        tss.append(prev)
+    return cats, nums, types, tss
 
-    进程树上下文(与 infer.py 的继承对齐):子进程样本前置父进程最近 16 个事件,
-    边界标签 = 子进程第一个事件——训练"父上下文 → 子进程诞生"这一转移,
-    否则推理端的继承评分未经训练、不校准。子进程首事件 time_delta=0(与推理一致)。
-    """
+
+def _windows(cats, nums, types, tss, engine, mask_prefix=0):
     samples = []
-    for exec_id, seq in seqs.items():
-        parent_id = seq[0]["process"].get("parent_exec_id", "")
-        pseq = seqs.get(parent_id) if parent_id else None
-        ctx_n = engine.schema["training"].get("tree_context_events", 16)
-        ctx = pseq[-ctx_n:] if pseq else []
-        combined = ctx + seq
-        if len(combined) < 2:
+    n = len(cats)
+    for start in range(0, n - 1, engine.seq_len):
+        stop = min(start + engine.seq_len, n)
+        if stop - start < 2:
             continue
-        cats, nums, types, tss = [], [], [], []
-        prev = None
-        for ev in ctx:
-            c, n = engine.tensors(ev, prev)
-            cats.append(c)
-            nums.append(n)
-            types.append(engine.vocab["event_type"].get(ev["event"]["type"], 0))
-            prev = parse_ts(ev["event_time"])
-            tss.append(prev)
-        prev = None  # 子进程独立计时,首事件 delta=0
-        for ev in seq:
-            c, n = engine.tensors(ev, prev)
-            cats.append(c)
-            nums.append(n)
-            types.append(engine.vocab["event_type"].get(ev["event"]["type"], 0))
-            prev = parse_ts(ev["event_time"])
-            tss.append(prev)
-        for start in range(0, len(combined) - 1, engine.seq_len):
-            stop = min(start + engine.seq_len, len(combined))
-            if stop - start < 2:
-                continue
-            L = stop - start
-            mask = torch.ones(L)
-            tgt = torch.tensor(types[start + 1 : stop] + [0])
-            mask[-1] = 0  # 窗口最后一个位置没有下一事件标签
-            samples.append(
-                Sample(
-                    cat=torch.stack(cats[start:stop]),
-                    num=torch.stack(nums[start:stop]),
-                    tgt=tgt,
-                    mask=mask,
-                    end_ts=tss[stop - 1],
-                )
+        L = stop - start
+        mask = torch.ones(L)
+        mask[-1] = 0  # 窗口最后一个位置没有下一事件标签
+        if start == 0 and mask_prefix:
+            mask[:mask_prefix] = 0  # ctx 内部转移不在子样本里重复训练
+        tgt = torch.tensor(types[start + 1 : stop] + [0])
+        samples.append(
+            Sample(
+                cat=torch.stack(cats[start:stop]),
+                num=torch.stack(nums[start:stop]),
+                tgt=tgt,
+                mask=mask,
+                end_ts=tss[stop - 1],
             )
+        )
+    return samples
+
+
+def build_samples(seqs: dict[str, list[dict]], engine: FeatureEngine) -> list[Sample]:
+    """进程树序列 → ≤seq_len 窗口样本(与 infer.py 的树上下文逐位对齐)。
+
+    父样本:自身事件 + 直接子进程的首事件(诞生)按时间 interleaved——
+    父进程的"下一事件"分布真实包含子进程诞生,诞生评分才校准。
+    子样本:父进程诞生前最近 ctx_n 个事件(含既往诞生)从零重放作上下文,
+    只训练子进程内部转移(ctx 内部与边界标签已在父样本训练,不重复计入)。
+    """
+    ctx_n = engine.schema["training"].get("tree_context_events", 16)
+    children_first: dict[str, list[dict]] = {}
+    for seq in seqs.values():
+        pid = seq[0]["process"].get("parent_exec_id", "")
+        if pid in seqs:
+            children_first.setdefault(pid, []).append(seq[0])
+
+    merged: dict[str, list[dict]] = {}
+    for eid, seq in seqs.items():
+        merged[eid] = sorted(
+            seq + children_first.get(eid, []), key=lambda e: parse_ts(e["event_time"])
+        )
+
+    samples = []
+    for eid, seq in seqs.items():
+        # 父/自身样本:interleaved 序列,全部位置有标签
+        cats, nums, types, tss = _encode(merged[eid], engine)
+        samples += _windows(cats, nums, types, tss, engine)
+        # 子样本:ctx = 父 merged 中诞生前最近 ctx_n 个事件;只训子进程内部转移
+        pid = seq[0]["process"].get("parent_exec_id", "")
+        if pid in merged and len(seq) >= 2:
+            birth_ts = parse_ts(seq[0]["event_time"])
+            ctx = [e for e in merged[pid] if parse_ts(e["event_time"]) < birth_ts][-ctx_n:]
+            if ctx:
+                cc, cn, ct, tt = _encode(ctx, engine)
+                sc, sn, st_, tt2 = _encode(seq, engine)  # 子进程首事件 delta=0
+                samples += _windows(
+                    cc + sc, cn + sn, ct + st_, tt + tt2, engine, mask_prefix=len(ctx)
+                )
     samples.sort(key=lambda s: s.end_ts)
     return samples
 

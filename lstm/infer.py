@@ -82,12 +82,14 @@ class StreamInferencer:
             return None
 
         st = self.states.get(exec_id)
+        parent = None
+        is_birth = False
         if st is None:
             st = ProcState(self.engine.seq_len)
-            # Process Tree Context(v1.0 §4):用父进程最近 N 个事件从零状态重放,
-            # 初始化子进程状态——与训练样本的 ctx 构造完全一致(继承全量历史 hidden
-            # 会造成训练/推理分布失配, birth 评分不校准)。
+            # Process Tree Context(v1.0 §4):用父进程最近 N 个事件(含既往诞生)
+            # 从零重放初始化子进程——与训练子样本的 ctx 构造逐位一致。
             parent = self.states.get(ev["process"].get("parent_exec_id", ""))
+            is_birth = parent is not None
             if parent is not None and parent.buffer:
                 ctx_n = self.engine.schema["training"].get("tree_context_events", 16)
                 logits = None
@@ -137,6 +139,15 @@ class StreamInferencer:
         st.buffer.append((cat, num))
         st.last_ts = ts
         st.pending = logits
+
+        # 诞生事件同时推进父进程状态(父样本训练时 interleaved 了诞生),
+        # 父进程的下一事件分布始终反映树的真实历史。
+        if is_birth and parent is not None:
+            pcat, pnum = self.engine.tensors(ev, parent.last_ts)
+            plg, parent.hidden = self.model.step(pcat, pnum, parent.hidden)
+            parent.buffer.append((pcat, pnum))
+            parent.last_ts = ts
+            parent.pending = plg
 
         if kind == "process_exit":
             del self.states[exec_id]  # 退出关闭状态
