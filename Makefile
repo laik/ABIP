@@ -27,7 +27,7 @@ demo:
 	rm -rf data models/registry
 	$(MAKE) gen collect train infer
 
-test:
+test: collector
 	cd collector && cargo test
 	$(PY) -m lstm.selfcheck
 

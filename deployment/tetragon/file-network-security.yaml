@@ -1,6 +1,12 @@
 # ABIP P0 TracingPolicy:文件 / 网络 / 权限。
 # 注意:Tetragon 默认只有进程生命周期事件,文件/网络/权限必须像这样显式配置 Hook。
-# 生产环境应加 selectors(matchNamespaces / matchBinaries)限定范围,否则事件量巨大。
+# 生产环境应加 selectors 限定范围,否则事件量巨大。
+# 按 k8s namespace 过滤用 matchWorkloads.podSelector(matchNamespaces 是 Linux namespace,不是 k8s!):
+#   selectors:
+#     - matchWorkloads:
+#         podSelector:
+#           matchExpressions: [{key: namespace, operator: In, values: ["your-ns"]}]
+# 已在 Tetragon v1.8.0 / k8s v1.37 真实集群验证(2026-11-23)。
 apiVersion: cilium.io/v1alpha1
 kind: TracingPolicy
 metadata:
