@@ -78,7 +78,11 @@ def run(events_path: str, registry_root: str, log_path: str | None = None):
     cold = max(1, min(trigger, len(train_pool) // 2))
     first, rest = train_pool[:cold], train_pool[cold:]
     model = BehaviorLSTM(schema)
-    train_epochs(model, first, schema, epochs=8, rng=rng)
+    # 小样本时按批次数放大 epoch,保证冷启动至少 ~200 个梯度步,
+    # 否则真实采集这类小数据集训练不充分(argmax 停在初始 UNK 位)。
+    n_batches = max(1, -(-len(first) // schema["model"]["batch_size"]))
+    cold_epochs = max(8, -(-200 // n_batches))
+    train_epochs(model, first, schema, epochs=cold_epochs, rng=rng)
     metrics = evaluate(model, val, schema["model"]["batch_size"])
     version = reg.next_version()
     meta = reg.save_version(version, model, {"parent": None, "train_samples": len(first),
