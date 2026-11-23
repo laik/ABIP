@@ -54,9 +54,18 @@ Royal 的 openssl 加密;勒索信文件名 README_RESTORE 取自真实家族惯
 
 数据完整性门槛是本场景的核心:**不是"检测到攻击",而是"攻击造成零损失"**。
 
-## 4. 结果
+## 4. 结果(2026-11-23,真实集群,一次通过)
 
-(运行后填写)
+| 门槛 | 结果 |
+|---|---|
+| 零误拦 | baseline allow → **MAINTAINED** ✅ |
+| 拦截 | attack **block**(sensitive_resource_access)→ **BLOCKED** ✅ |
+| **数据完整性(零损失)** | `/var/lib/db/data/users.csv` 运行后仍存在 ✅ |
+| 破坏未发生 | README_RESTORE.txt 未写入,rm 不可达 ✅ |
+| 检测证据 | sensitive_resource ×6(侦察/归档/加锁),unknown_binary(openssl)✅ |
+
+拦截发生在加锁完成、破坏开始之前——真实事件中不可逆损失(T1485)的窗口被守住。
+决策链:tar/openssl 触碰 DB 目录与 .locked → 确定性敏感标记 → block → 门禁拒绝执行破坏阶段。
 
 ## 5. 复现
 

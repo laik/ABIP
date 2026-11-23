@@ -51,6 +51,7 @@ feeds Jev in P3. Deterministic rules take precedence over model judgment.
 | TracingPolicy (real Tetragon v1.8.0 / k8s v1.37 cluster) | ✅ verified 2026-11-23, real-stream Top-1 0.813 / Top-3 0.948 |
 | OpenShell agent scenarios (RFC 0001/0002: coding/data/ops/supply/persist/lateral + release-pipeline interception) | ✅ all passed, Top-3 0.90+, attack coverage 1.0, transfer publish BLOCKED |
 | Mutation coverage engine (RFC 0002: 8 deviation dims + blind, 7 real profiles) | ✅ deterministic dims 1.00, blind 1.0; timing/sequence gaps documented |
+| Ransomware data-lock interception (RFC 0003 S8, real-incident modeled) | ✅ BLOCKED before destruction, database intact (zero loss) |
 | kind scripts | ⚠️ provided, unexercised (real cluster already existed) |
 | Jev / Decision Controller / multi-tenancy / OTEL | ⏭ P3/P4, not implemented |
 
