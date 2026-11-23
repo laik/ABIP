@@ -9,7 +9,7 @@ ABIP 的核心命题是:**工作负载的运行时行为是可学习的,偏离�
 合成数据证明了链路可行,但只有在真实 Agent 工作负载上验证,命题才成立。
 
 集群中已有 NVIDIA OpenShell(基于 agent-sandbox `Sandbox` CR)作为 Agent 运行时。
-本 RFC 定义 3 个 OpenShell Agent 场景,作为 ABIP 的**可复现验证夹具**:
+本 RFC 定义 4 个 OpenShell Agent 场景,作为 ABIP 的**可复现验证夹具**:
 每个场景 = 一个行为 profile(基线)+ 一组注入攻击(偏离),在真实 Tetragon 观测下
 度量 ABIP 的学习与检测能力。
 
@@ -80,6 +80,36 @@ pod 标签 `abip.io/observe=true` + `abip.io/scenario=<name>`,TracingPolicy 按�
 S3 是关键对照:**同类操作(读 /etc 下文件)因资源敏感度不同而判定不同**,
 验证确定性层不做"一刀切 /etc"。
 
+### S4 release-pipeline(三角色发布流水线 + 拦截闭环)
+
+模拟 AI Agent 被黑后试图在发布环节自动上线转账业务,ABIP 决策被下游门禁消费执行拦截。
+这是 P3 Decision Controller 模式的最小预演:**ABIP 只产出决策,拦截由下游授权执行**。
+
+| 角色 | 基线行为 | 被黑后行为 |
+|---|---|---|
+| config(拿 token/配置中心) | wget 内部配置中心 + 读应用配置,8 轮 | 额外读 token 并外传 203.0.113.9 |
+| review(审核) | 读 manifest + ls 检查 + 写审批,6 轮 | **跳过全部检查**直接写审批(序列偏离,LSTM 层信号) |
+| publish(发布) | 读 app.yaml + 审批 → 等决策 → 发布到内部 registry | 读 **transfer-service.yaml**(关键业务)→ 等决策 → 试图发布 |
+
+拦截闭环(时序):
+
+```
+pod: config/review 运行 → publish 读 manifest → 暂停等待 decision.json(≤45s)
+runner: 采集事件 → Collector → LSTM 推理 → release_decision.py
+        (确定性规则优先:critical_business → block)→ kubectl exec 注入决策
+pod: 门禁读决策 → block: 打印 BLOCKED 退出 / allow: 发布,打印 PUBLISHED
+```
+
+关键业务资源分类(`critical_business_markers`:transfer-service / payment-service 等)
+是确定性规则,优先于模型判断;token 外传由 external_destination 标记;
+审核跳过由序列异常分体现(证据留存,供 P3 Jev 结构化决策)。
+
+| 验收 | 门槛 |
+|---|---|
+| 零误拦 | baseline 决策 allow,pod 打印 PUBLISHED |
+| 拦截 | attack 决策 block(critical_business),pod 打印 BLOCKED,未发生发布 |
+| 证据 | critical_business 与 external_destination 标记均存在 |
+
 ## 4. 验证协议
 
 对每个场景 S:
@@ -116,8 +146,10 @@ S3 是关键对照:**同类操作(读 /etc 下文件)因资源敏感度不同而
 ```bash
 # 在 192.168.5.190(已配 kubectl/Tetragon 集群访问)
 cd /root/ABIP
-bash scripts/run-scenarios.sh        # 采集 + 训练 + 评分,约 6 分钟
+bash scripts/run-scenarios.sh        # S1-S3:采集 + 训练 + 评分,约 8 分钟
 cat data/scenario-report.json        # 汇总
+bash scripts/run-release-scenario.sh # S4:三角色发布流水线 + 拦截闭环,约 2 分钟
+cat data/release-report.json
 ```
 
 ## 7. 限制与后续

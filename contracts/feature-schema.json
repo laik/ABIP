@@ -68,6 +68,7 @@
       "workspace",
       "config",
       "sensitive",
+      "critical_business",
       "tmp",
       "binary",
       "other"
@@ -126,6 +127,12 @@
     }
   },
   "classification": {
+    "critical_business_markers": [
+      "transfer-service",
+      "payment-service",
+      "/release/transfer",
+      "/release/payment"
+    ],
     "sensitive_paths": [
       "/etc/shadow",
       "/etc/sudoers",

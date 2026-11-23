@@ -47,6 +47,9 @@ class FeatureEngine:
         path = ev["event"].get("resource", "")
         if not path:
             return "unknown"
+        for m in self.cls.get("critical_business_markers", []):
+            if m in path:
+                return "critical_business"
         for p in self.cls["sensitive_paths"]:
             if p in path:
                 return "sensitive"

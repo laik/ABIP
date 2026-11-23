@@ -111,8 +111,11 @@ class StreamInferencer:
             # profile 之外的未知二进制是确定性信号(RFC 0001)。
             if self.engine.vocab["binary"].get(ev["process"].get("binary", ""), 0) == 0:
                 flags.append("unknown_binary")
-            if self.engine.resource_class(ev) == "sensitive":
+            rc = self.engine.resource_class(ev)
+            if rc == "sensitive":
                 flags.append("sensitive_resource")
+            if rc == "critical_business":
+                flags.append("critical_business")
             if self.engine.dest_port_class(ev)[0] == "external":
                 flags.append("external_destination")
             key = (exec_id, ev["event_time"])
