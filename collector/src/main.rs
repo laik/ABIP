@@ -76,7 +76,7 @@ fn main() {
     }
     let c = &tree.counters;
     eprintln!(
-        "collector: received={} invalid={} deduped={} late={} emitted={}",
-        c.received, c.invalid, c.deduped, c.late, c.emitted
+        "collector: received={} invalid={} deduped={} late={} exec_cred_noise={} emitted={}",
+        c.received, c.invalid, c.deduped, c.late, c.exec_cred_noise, c.emitted
     );
 }

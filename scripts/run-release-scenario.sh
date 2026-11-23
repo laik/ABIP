@@ -46,7 +46,7 @@ spec:
           configMap: {name: abip-scenario-scripts}
 EOF
   kubectl -n $NS wait --for=condition=Ready "pod/$NAME" --timeout=90s || return 1
-  sleep 22   # 角色 1/2 运行 + publish 准备完成,进入决策等待窗口
+  sleep 35   # config 8 轮×~3s + publish 准备完成,进入决策等待窗口(45s)
   kill $CAP 2>/dev/null; wait $CAP 2>/dev/null
   $PY - "$NAME" "data/raw-release-$MODE.jsonl" "data/events-release-$MODE.jsonl" <<'PY'
 import json, sys

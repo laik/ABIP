@@ -67,7 +67,7 @@ PY
   kubectl -n $NS delete sandbox "$NAME" --wait=false >/dev/null 2>&1
 }
 
-for S in coding data ops; do
+for S in ${SCENARIOS:-coding data ops}; do
   echo "=== scenario: $S ==="
   run_one "$S" baseline
   run_one "$S" attack

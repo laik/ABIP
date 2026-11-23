@@ -15,6 +15,7 @@ pub struct Counters {
     pub deduped: u64,
     pub late: u64,
     pub emitted: u64,
+    pub exec_cred_noise: u64,
 }
 
 struct Node {
@@ -42,6 +43,17 @@ impl Tree {
     /// 返回 false 表示重复事件,调用方应丢弃。
     pub fn observe(&mut self, ev: &mut Event) -> bool {
         self.counters.received += 1;
+        // execve 期间的 commit_creds 带瞬态 exec_id(与 process_exec 不同),
+        // 是内核标准凭据安装的良性噪声,不是真正的权限变化;过滤。
+        // 进程生存期内 exec_id 已存在的 capability_change(setuid 等)保留。
+        if ev.event.kind == "capability_change" && !self.nodes.contains_key(&ev.process.exec_id) {
+            if let Some(p) = self.nodes.get(&ev.process.parent_exec_id) {
+                if !p.binary.is_empty() && p.binary == ev.process.binary {
+                    self.counters.exec_cred_noise += 1;
+                    return false;
+                }
+            }
+        }
         // shortcut: 去重集到上限整体清空,极端吞吐下可能放过少量重复;升级换 LRU/bloom filter。
         if self.seen.len() >= DEDUP_CAP {
             self.seen.clear();
@@ -206,6 +218,34 @@ mod tests {
         assert!(!tree.observe(&mut dup));
         assert_eq!(tree.counters.deduped, 1);
         assert_eq!(tree.counters.emitted, 1);
+    }
+
+    #[test]
+    fn filters_execve_credential_noise_but_keeps_real_changes() {
+        let mut tree = Tree::default();
+        let mut parent = exec("e1", "", 1, "/usr/bin/tar", "2026-11-22T10:00:00Z");
+        tree.observe(&mut parent);
+        // 瞬态 exec_id 的 commit_creds(parent 已知、同 binary)→ 噪声过滤
+        let mut noise = {
+            let raw = json!({"process_kprobe": {
+                "process": {"exec_id": "e-transient", "parent_exec_id": "e1",
+                            "pid": 2, "binary": "/usr/bin/tar"},
+                "function_name": "commit_creds", "args": []
+            }, "time": "2026-11-22T10:00:00.001Z"});
+            normalize(&raw, "c").unwrap()
+        };
+        assert!(!tree.observe(&mut noise));
+        assert_eq!(tree.counters.exec_cred_noise, 1);
+        // 进程生存期内的 capability_change(exec_id 已知)→ 保留
+        let mut real = {
+            let raw = json!({"process_kprobe": {
+                "process": {"exec_id": "e1", "parent_exec_id": "",
+                            "pid": 1, "binary": "/usr/bin/tar"},
+                "function_name": "commit_creds", "args": []
+            }, "time": "2026-11-22T10:00:05Z"});
+            normalize(&raw, "c").unwrap()
+        };
+        assert!(tree.observe(&mut real));
     }
 
     #[test]
