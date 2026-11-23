@@ -64,10 +64,41 @@ interruption. Late events are counted but never update hidden state; state close
 Same FeatureEngine code path, deterministic encoding, UNK→index 0, normalization ∈ [0,1],
 bit-identical model save/load, single-step `step` matches batched `forward`, anomaly formula verified.
 
-## 7. Unverified / known limitations
+## 7. Real-cluster verification (2026-11-23)
 
-- TracingPolicy / kind scripts not verified on real Linux (no eBPF on macOS); real Tetragon kprobe
-  payload shapes follow the fixtures and docs — normalize may need minor adjustments at integration.
+Environment: existing k8s v1.37.2 cluster (Debian 12, kernel 6.12), Tetragon v1.8.0 already
+installed; dev host Ubuntu 24.04. ABIP TracingPolicy scoped by pod label (`abip.io/observe=true`),
+demo workload pod (alpine sh/cat/ls/wget) on the worker node.
+
+- Capture (merged runs): 2533 raw events → **invalid=0, deduped=689** (same exec observed by two
+  policies), emitted=1844 unified events covering all four categories:
+  process_exec/exit, file_open (110 in the final window), network_connect, capability_change.
+- Training: cold-start v1 val CE 2.93 / Top-1 0.549 → v2 **promoted** (CE 2.64, Top-3 0.932).
+- Inference on the real stream: **Top-1 0.813, Top-3 0.948**, mean CE 1.078.
+  An exec-only capture scored Top-1 0.960 (short exec→exit chains are highly predictable);
+  these are baselines, not claims about complex workloads.
+
+Integration findings fixed along the way (all covered by tests now):
+
+1. Real kprobe `function_name` carries arch prefixes (`__x64_sys_openat`) — stripped in normalize.
+2. Tracepoint exec events use `subsys`/`event` fields, not `function_name` — now ingested.
+3. Real payloads nest container under `pod.container` — both layouts accepted.
+4. Exec/exit dedup must key on `exec_id`, not `event_id` (policies timestamp the same exec differently).
+5. `matchWorkloads.podSelector` matches **pod labels**, and labels must exist at pod creation;
+   `matchNamespaces` selects Linux namespaces, not k8s namespaces.
+6. Small captures need scaled cold-start epochs (~200 gradient steps minimum) or the model
+   stays at its initialization.
+7. **`syscall: true` kprobes produce no events when combined with `matchWorkloads` selectors**
+   on Tetragon v1.8.0 / kernel 6.12. Use kernel functions with `syscall: false`
+   (`do_sys_openat2` instead of `sys_openat`); the repo policy is updated accordingly.
+8. `commit_creds` fires on **every execve** (normal kernel credential setup), so
+   `capability_change` counts are dominated by benign noise — P3 risk triggering must
+   down-weight it and rely on `sys_setuid`-class signals.
+
+## 8. Unverified / known limitations
+
+- kind scripts not exercised (the real cluster already existed); Docker Hub pulls fail on this
+  network (DNS poisoning) — use node-cached images or a reachable registry.
 - file_write not captured (sys_write's arg is a buffer, not a path; needs fd→path resolution;
   marked with a `shortcut:` comment).
 - Synthetic behavior patterns are strong; metrics do not represent real workloads. Re-baseline

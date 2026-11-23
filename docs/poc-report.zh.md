@@ -61,10 +61,38 @@ late 事件只计数不更新 Hidden State;process_exit 后状态关闭。
 同一 FeatureEngine 实例路径、编码确定性、UNK→index 0、归一化 ∈ [0,1]、
 模型 save/load 逐位一致、单步 step 与批量 forward 一致、异常分公式核对。
 
-## 7. 未验证 / 已知限制
+## 7. 真实集群验证(2026-11-23)
 
-- TracingPolicy / kind 脚本未在 Linux 真机验证(macOS 无 eBPF);真实 Tetragon
-  kprobe 参数形状以夹具与文档为准,接入时可能需要按实际 payload 微调 normalize。
+环境:现有 k8s v1.37.2 集群(Debian 12,kernel 6.12),Tetragon v1.8.0 已部署;
+开发机 Ubuntu 24.04。ABIP TracingPolicy 按 pod 标签限定(`abip.io/observe=true`),
+worker 节点上跑演示 workload pod(alpine sh/cat/ls/wget)。
+
+- 采集(合并多次):2533 条原始事件 → **invalid=0,deduped=689**(同一 exec 被两个 policy 观测),
+  输出 1844 条统一事件,覆盖全部四类:process_exec/exit、file_open(末次窗口 110)、
+  network_connect、capability_change。
+- 训练:冷启动 v1 val CE 2.93 / Top-1 0.549 → v2 **promote**(CE 2.64,Top-3 0.932)。
+- 真实流推理:**Top-1 0.813,Top-3 0.948**,平均 CE 1.078。
+  纯 exec 采集曾达 Top-1 0.960(短 exec→exit 链可预测性强);均为基准,不代表复杂工作负载。
+
+接入过程中修复的问题(均已有测试覆盖):
+
+1. 真实 kprobe `function_name` 带架构前缀(`__x64_sys_openat`)——normalize 已剥离。
+2. tracepoint exec 事件用 `subsys`/`event` 字段,不是 `function_name`——已纳入采集。
+3. 真实 payload 的 container 嵌在 `pod.container` 下——两种布局都兼容。
+4. exec/exit 去重必须按 `exec_id`(不同 policy 对同一 exec 的时间戳不同,event_id 去重会漏)。
+5. `matchWorkloads.podSelector` 匹配的是 **pod labels**,且标签需在 pod 创建时存在;
+   `matchNamespaces` 选的是 Linux namespace,不是 k8s namespace。
+6. 小样本采集需放大冷启动 epoch(保证 ~200 个梯度步),否则模型停在初始化状态。
+7. **Tetragon v1.8.0 / kernel 6.12 上,`syscall: true` 的 kprobe 与 matchWorkloads selector
+   组合不产生事件**。必须用内核函数 + `syscall: false`(`do_sys_openat2` 代替 `sys_openat`),
+   仓库 policy 已更新。
+8. `commit_creds` 在**每次 execve** 都触发(内核正常凭据设置),capability_change 计数以
+   良性噪声为主——P3 风险触发需降权,依赖 sys_setuid 类信号。
+
+## 8. 未验证 / 已知限制
+
+- kind 脚本未实际使用(已有现成集群);该网络拉 Docker Hub 失败(DNS 污染)——
+  用节点缓存镜像或可达 registry。
 - file_write 未采集(sys_write 参数是缓冲区不是路径,需 fd→path 解析,已留 shortcut 注释)。
 - 合成数据行为模式较强,指标不代表真实工作负载;真实数据接入后重新建立基准。
 - 去重集到 200k 上限整体清空(极端吞吐下可能放过少量重复,已留 shortcut 注释)。

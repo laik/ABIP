@@ -157,8 +157,9 @@ explicit TracingPolicies**:
 - `scripts/capture-events.sh`: `tetra getevents -o json` to JSONL, feed the Collector.
 
 macOS dev machines cannot run eBPF; local development/acceptance uses replay and synthetic events
-(`make demo`). TracingPolicy and kind scripts are verified on Linux (currently unverified; see the
-README status table).
+(`make demo`). The TracingPolicy was verified on a real Tetragon v1.8.0 / k8s v1.37 cluster
+(2026-11-23, see poc-report.md §7); scope it with `matchWorkloads.podSelector` on pod labels —
+labels must exist at pod creation. kind scripts remain unexercised.
 
 ## 7. POC acceptance (executable subset of v1.0 §15)
 

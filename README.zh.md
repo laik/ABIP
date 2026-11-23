@@ -45,7 +45,8 @@ make collect train infer
 | Feature Engine v1(训练/推理同一实现) | ✅ 自检 |
 | LSTM 训练/推理/增量/Champion-Challenger | ✅ 自检 + demo |
 | 热切换 + 状态重建 + 回滚 | ✅ 自检 |
-| TracingPolicy / kind 脚本 | ⚠️ 已提供,未在 Linux 真机验证 |
+| TracingPolicy(真实 Tetragon v1.8.0 / k8s v1.37 集群) | ✅ 2026-11-23 验证,真实流 Top-1 0.813 / Top-3 0.948 |
+| kind 脚本 | ⚠️ 已提供,未实际使用(已有现成集群) |
 | Jev / Decision Controller / 多租户 / OTEL | ⏭ P3/P4,未实现 |
 
 ## 目录

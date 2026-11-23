@@ -9,14 +9,16 @@
 #           matchLabels: {abip.io/observe: "true"}
 # 已在 Tetragon v1.8.0 / k8s v1.37 真实集群验证(2026-11-23)。
 # 另:真实事件的 function_name 带架构前缀(__x64_sys_openat),Collector 已兼容。
+# 实测(Tetragon v1.8.0 / kernel 6.12):syscall:true 的 hook 与 matchWorkloads selector
+# 组合时不产生事件,必须用内核函数 + syscall:false(如 do_sys_openat2 代替 sys_openat)。
 apiVersion: cilium.io/v1alpha1
 kind: TracingPolicy
 metadata:
   name: abip-file-network-security
 spec:
   kprobes:
-    - call: "sys_openat"
-      syscall: true
+    - call: "do_sys_openat2"
+      syscall: false
       args:
         - index: 1
           type: "string"
@@ -27,10 +29,7 @@ spec:
       args:
         - index: 0
           type: "sock"
-    - call: "sys_setuid"
-      syscall: true
-      args:
-        - index: 0
-          type: "int"
+    # shortcut: commit_creds 在每次 execve 时都会触发(内核正常行为,非异常),
+    # P3 风险触发需降权;sys_setuid(syscall:true)与 selector 不兼容,由 commit_creds 覆盖。
     - call: "commit_creds"
       syscall: false
