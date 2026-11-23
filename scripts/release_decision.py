@@ -38,10 +38,12 @@ def main():
                 {"event_id": r["event_id"], "anomaly_score": round(r["anomaly_score"], 3)}
             )
 
-    # 确定性禁止规则优先:关键业务资源一律阻断发布
+    # 确定性禁止规则优先:关键业务资源 / 敏感资源(DB 目录、.locked、勒索信)一律阻断
     reasons = []
     if "critical_business" in flags:
         reasons.append("critical_business_resource")
+    if "sensitive_resource" in flags:
+        reasons.append("sensitive_resource_access")
     action = "block" if reasons else "allow"
     decision = {"action": action, "reason": reasons, "model_version": inf.version}
     Path(args.decision).write_text(json.dumps(decision))

