@@ -137,6 +137,7 @@
       "/etc/shadow",
       "/etc/sudoers",
       "/etc/cron",
+      "/proc/net",
       "/root/.ssh",
       "/.ssh/",
       "/var/run/secrets",

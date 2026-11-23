@@ -89,7 +89,8 @@ for f in sorted(glob.glob("data/scenario-*-report.json")):
         summary[s] = {"passed": r["passed"], "gates": r["gates"],
                       "baseline_top3": round(r["baseline"]["top3"], 3),
                       "risk_coverage": r["attack"]["risk_context_coverage"],
-                      "chain_exec_anomaly": round(r["attack"]["chain_exec_anomaly"], 3),
+                      "chain_exec_anomaly": round(r["attack"].get("chain_exec_anomaly",
+                                                          r["attack"].get("nc_exec_anomaly", 0)), 3),
                       "baseline_p90": round(r["baseline"]["anomaly_p90"], 3)}
     except (KeyError, ValueError):
         summary[s] = {"passed": False, "error": "bad report"}
