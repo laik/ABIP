@@ -137,7 +137,8 @@ pub fn normalize(raw: &Value, cluster_id: &str) -> Option<Event> {
         )
     } else if let Some(p) = raw.get("process_tracepoint") {
         // sched_process_exec tracepoint(如 sandbox-exec-observe policy)也是 exec 事件。
-        if !s(p, "function_name").contains("sched_process_exec") {
+        // 真实 payload 用 subsys/event 字段,不是 function_name。
+        if !s(p, "event").contains("sched_process_exec") {
             return None;
         }
         let binary = s(p.get("process")?, "binary");
@@ -350,7 +351,7 @@ mod tests {
             "process": {"exec_id": "e9", "binary": "/usr/bin/wget", "pid": 9,
                 "pod": {"namespace": "default", "name": "abip-demo", "uid": "u9",
                         "container": {"id": "containerd://abc9"}}},
-            "function_name": "sched_process_exec"
+            "subsys": "sched", "event": "sched_process_exec"
         }, "time": "2026-11-22T10:00:01Z"});
         let ev = normalize(&raw, "c1").unwrap();
         assert_eq!(ev.event.kind, "process_exec");
@@ -358,7 +359,7 @@ mod tests {
         assert_eq!(ev.pod_uid, "u9");
         // 非 exec 的 tracepoint 不处理
         let other = json!({"process_tracepoint": {"process": {"exec_id": "e9"},
-            "function_name": "sched_process_exit"}, "time": "2026-11-22T10:00:01Z"});
+            "subsys": "sched", "event": "sched_process_exit"}, "time": "2026-11-22T10:00:01Z"});
         assert!(normalize(&other, "c1").is_none());
     }
 
