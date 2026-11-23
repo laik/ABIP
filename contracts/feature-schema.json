@@ -4,28 +4,171 @@
   "sequence_length": 64,
   "embedding_dim": 16,
   "categorical": {
-    "event_type": ["unknown", "process_exec", "process_exit", "file_open", "file_write", "network_connect", "capability_change"],
-    "event_category": ["unknown", "process", "file", "network", "security"],
-    "binary": ["unknown", "python3", "bash", "sh", "curl", "wget", "nc", "cat", "ls", "tar", "gcc", "node", "nginx", "redis-server", "sshd", "sudo", "chmod"],
-    "parent_binary": ["unknown", "python3", "bash", "sh", "curl", "wget", "nc", "cat", "ls", "tar", "gcc", "node", "nginx", "redis-server", "sshd", "sudo", "chmod"],
-    "uid_class": ["unknown", "root", "system", "user"],
-    "resource_class": ["unknown", "none", "workspace", "config", "sensitive", "tmp", "binary", "other"],
-    "dest_class": ["unknown", "none", "internal", "external", "loopback"],
-    "port_class": ["unknown", "none", "well_known", "registered", "high"],
-    "hour_bucket": ["unknown", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23"]
+    "event_type": [
+      "unknown",
+      "process_exec",
+      "process_exit",
+      "file_open",
+      "file_write",
+      "network_connect",
+      "capability_change"
+    ],
+    "event_category": [
+      "unknown",
+      "process",
+      "file",
+      "network",
+      "security"
+    ],
+    "binary": [
+      "unknown",
+      "python3",
+      "bash",
+      "sh",
+      "curl",
+      "wget",
+      "cat",
+      "ls",
+      "tar",
+      "gcc",
+      "node",
+      "nginx",
+      "redis-server",
+      "sshd",
+      "sudo",
+      "chmod"
+    ],
+    "parent_binary": [
+      "unknown",
+      "python3",
+      "bash",
+      "sh",
+      "curl",
+      "wget",
+      "cat",
+      "ls",
+      "tar",
+      "gcc",
+      "node",
+      "nginx",
+      "redis-server",
+      "sshd",
+      "sudo",
+      "chmod"
+    ],
+    "uid_class": [
+      "unknown",
+      "root",
+      "system",
+      "user"
+    ],
+    "resource_class": [
+      "unknown",
+      "none",
+      "workspace",
+      "config",
+      "sensitive",
+      "tmp",
+      "binary",
+      "other"
+    ],
+    "dest_class": [
+      "unknown",
+      "none",
+      "internal",
+      "external",
+      "loopback"
+    ],
+    "port_class": [
+      "unknown",
+      "none",
+      "well_known",
+      "registered",
+      "high"
+    ],
+    "hour_bucket": [
+      "unknown",
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14",
+      "15",
+      "16",
+      "17",
+      "18",
+      "19",
+      "20",
+      "21",
+      "22",
+      "23"
+    ]
   },
   "numeric": {
-    "process_depth": { "clip": 10, "scale": 10 },
-    "time_delta": { "transform": "log1p", "clip": 3600, "scale": 8.294 }
+    "process_depth": {
+      "clip": 10,
+      "scale": 10
+    },
+    "time_delta": {
+      "transform": "log1p",
+      "clip": 3600,
+      "scale": 8.294
+    }
   },
   "classification": {
-    "sensitive_paths": ["/etc/shadow", "/etc/sudoers", "/root/.ssh", "/.ssh/", "/var/run/secrets", "/etc/kubernetes"],
-    "config_prefixes": ["/etc/"],
-    "workspace_prefixes": ["/workspace", "/app", "/home"],
-    "tmp_prefixes": ["/tmp/", "/var/tmp/"],
-    "binary_prefixes": ["/usr/bin/", "/usr/sbin/", "/bin/", "/sbin/", "/usr/local/bin/"],
-    "internal_cidrs": ["10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.30.", "172.31."],
-    "loopback_prefixes": ["127.", "::1", "localhost"]
+    "sensitive_paths": [
+      "/etc/shadow",
+      "/etc/sudoers",
+      "/root/.ssh",
+      "/.ssh/",
+      "/var/run/secrets",
+      "/etc/kubernetes"
+    ],
+    "config_prefixes": [
+      "/etc/"
+    ],
+    "workspace_prefixes": [
+      "/workspace",
+      "/app",
+      "/home"
+    ],
+    "tmp_prefixes": [
+      "/tmp/",
+      "/var/tmp/"
+    ],
+    "binary_prefixes": [
+      "/usr/bin/",
+      "/usr/sbin/",
+      "/bin/",
+      "/sbin/",
+      "/usr/local/bin/"
+    ],
+    "internal_cidrs": [
+      "10.",
+      "192.168.",
+      "172.16.",
+      "172.17.",
+      "172.18.",
+      "172.19.",
+      "172.2",
+      "172.30.",
+      "172.31."
+    ],
+    "loopback_prefixes": [
+      "127.",
+      "::1",
+      "localhost"
+    ]
   },
   "model": {
     "lstm_layers": 2,

@@ -9,7 +9,7 @@ data:
   coding.sh: |
     MODE="${1:-baseline}"
     mkdir -p /workspace/src
-    N=30; [ "$MODE" = attack ] && N=10
+    N=45; [ "$MODE" = attack ] && N=10
     i=0
     while [ $i -lt $N ]; do
       echo "print('hello')" > /workspace/src/main.py
@@ -34,7 +34,7 @@ data:
   data.sh: |
     MODE="${1:-baseline}"
     mkdir -p /workspace
-    N=30; [ "$MODE" = attack ] && N=10
+    N=45; [ "$MODE" = attack ] && N=10
     i=0
     while [ $i -lt $N ]; do
       dd if=/dev/zero of=/workspace/data.csv bs=1024 count=8 2>/dev/null
@@ -57,7 +57,7 @@ data:
     echo scenario-done
   ops.sh: |
     MODE="${1:-baseline}"
-    N=30; [ "$MODE" = attack ] && N=10
+    N=45; [ "$MODE" = attack ] && N=10
     i=0
     while [ $i -lt $N ]; do
       cat /etc/passwd > /dev/null
