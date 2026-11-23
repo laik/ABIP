@@ -135,6 +135,22 @@ pub fn normalize(raw: &Value, cluster_id: &str) -> Option<Event> {
                 resource: String::new(),
             },
         )
+    } else if let Some(p) = raw.get("process_tracepoint") {
+        // sched_process_exec tracepoint(如 sandbox-exec-observe policy)也是 exec 事件。
+        if !s(p, "function_name").contains("sched_process_exec") {
+            return None;
+        }
+        let binary = s(p.get("process")?, "binary");
+        (
+            p,
+            EventInfo {
+                category: "process".into(),
+                kind: "process_exec".into(),
+                operation: "execute".into(),
+                resource_type: "binary".into(),
+                resource: binary,
+            },
+        )
     } else if let Some(p) = raw.get("process_kprobe") {
         let fname = s(p, "function_name");
         // 真实 Tetragon 上报解析后的符号名,如 __x64_sys_openat / __arm64_sys_openat。
@@ -166,7 +182,14 @@ pub fn normalize(raw: &Value, cluster_id: &str) -> Option<Event> {
         }
     };
     let container_id = {
-        let id = s(&proc.get("container").cloned().unwrap_or(Value::Null), "id");
+        // 真实 Tetragon 把 container 嵌在 pod 里;夹具/部分版本在 process 级。两处都认。
+        let c = proc
+            .get("container")
+            .filter(|c| c.get("id").is_some())
+            .or_else(|| pod.get("container"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let id = s(&c, "id");
         id.split("://").last().unwrap_or("").to_string()
     };
     let event_time = s(raw, "time");
@@ -319,6 +342,24 @@ mod tests {
             "function_name": "some_other_hook", "args": []
         }, "time": "2026-11-22T10:00:01Z"});
         assert_eq!(normalize(&raw, "c1").unwrap().event.kind, "unknown");
+    }
+
+    #[test]
+    fn normalizes_tracepoint_exec_and_nested_container() {
+        let raw = json!({"process_tracepoint": {
+            "process": {"exec_id": "e9", "binary": "/usr/bin/wget", "pid": 9,
+                "pod": {"namespace": "default", "name": "abip-demo", "uid": "u9",
+                        "container": {"id": "containerd://abc9"}}},
+            "function_name": "sched_process_exec"
+        }, "time": "2026-11-22T10:00:01Z"});
+        let ev = normalize(&raw, "c1").unwrap();
+        assert_eq!(ev.event.kind, "process_exec");
+        assert_eq!(ev.container_id, "abc9");
+        assert_eq!(ev.pod_uid, "u9");
+        // 非 exec 的 tracepoint 不处理
+        let other = json!({"process_tracepoint": {"process": {"exec_id": "e9"},
+            "function_name": "sched_process_exit"}, "time": "2026-11-22T10:00:01Z"});
+        assert!(normalize(&other, "c1").is_none());
     }
 
     #[test]

@@ -46,7 +46,13 @@ impl Tree {
         if self.seen.len() >= DEDUP_CAP {
             self.seen.clear();
         }
-        if !self.seen.insert(ev.event_id.clone()) {
+        // exec/exit 按 exec_id 去重:一个进程实例只执行/退出一次,
+        // 多个 policy(默认 + tracepoint)观测同一 exec 时时间戳略有差异,不能用 event_id。
+        let dedup_key = match ev.event.kind.as_str() {
+            "process_exec" | "process_exit" => format!("{}:{}", ev.event.kind, ev.process.exec_id),
+            _ => ev.event_id.clone(),
+        };
+        if !self.seen.insert(dedup_key) {
             self.counters.deduped += 1;
             return false;
         }
@@ -200,6 +206,18 @@ mod tests {
         assert!(!tree.observe(&mut dup));
         assert_eq!(tree.counters.deduped, 1);
         assert_eq!(tree.counters.emitted, 1);
+    }
+
+    #[test]
+    fn dedups_same_exec_across_policies_with_different_timestamps() {
+        let mut tree = Tree::default();
+        let mut a = exec("e1", "", 1, "/bin/bash", "2026-11-22T10:00:00.000Z");
+        // 同一 exec 被另一个 policy 观测,时间戳差 50µs,event_id 不同
+        let mut b = exec("e1", "", 1, "/bin/bash", "2026-11-22T10:00:00.00005Z");
+        assert_ne!(a.event_id, b.event_id);
+        assert!(tree.observe(&mut a));
+        assert!(!tree.observe(&mut b));
+        assert_eq!(tree.counters.deduped, 1);
     }
 
     #[test]

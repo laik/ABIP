@@ -73,10 +73,12 @@ def run(events_path: str, registry_root: str, log_path: str | None = None):
     trigger = t["micro_batch_trigger"]
     log = []
 
-    # 冷启动 v1
-    first, rest = train_pool[:trigger], train_pool[trigger:]
+    # 冷启动 v1:小数据集(不足 2×trigger)取一半冷启动,另一半留给增量轮次,
+    # 否则真实采集这类小样本永远触发不了增量训练。
+    cold = max(1, min(trigger, len(train_pool) // 2))
+    first, rest = train_pool[:cold], train_pool[cold:]
     model = BehaviorLSTM(schema)
-    train_epochs(model, first, schema, epochs=3, rng=rng)
+    train_epochs(model, first, schema, epochs=8, rng=rng)
     metrics = evaluate(model, val, schema["model"]["batch_size"])
     version = reg.next_version()
     meta = reg.save_version(version, model, {"parent": None, "train_samples": len(first),
