@@ -86,8 +86,12 @@ worker 节点上跑演示 workload pod(alpine sh/cat/ls/wget)。
 7. **Tetragon v1.8.0 / kernel 6.12 上,`syscall: true` 的 kprobe 与 matchWorkloads selector
    组合不产生事件**。必须用内核函数 + `syscall: false`(`do_sys_openat2` 代替 `sys_openat`),
    仓库 policy 已更新。
-8. `commit_creds` 在**每次 execve** 都触发(内核正常凭据设置),capability_change 计数以
-   良性噪声为主——P3 风险触发需降权,依赖 sys_setuid 类信号。
+8. `commit_creds` 在**每次 execve** 都触发(内核正常凭据设置),且带**瞬态 exec_id**
+   (与 process_exec 不同),形成单事件幻影进程。Collector 过滤该噪声(未知 exec_id +
+   已知同 binary 父进程);进程生存期内真正的权限变化保留。
+9. OpenShell Agent 场景验证(RFC 0001,4 场景,含三角色发布流水线 + 被黑 AI 拦截闭环)
+   真实集群全部通过:基线 Top-3 0.940/0.966/0.945,攻击两层覆盖 1.0,零误拦,
+   转账业务发布被 BLOCKED。见 [rfc/0001](rfc/0001-openshell-agent-behavior-scenarios.md)。
 
 ## 8. 未验证 / 已知限制
 

@@ -46,6 +46,7 @@ make collect train infer
 | LSTM 训练/推理/增量/Champion-Challenger | ✅ 自检 + demo |
 | 热切换 + 状态重建 + 回滚 | ✅ 自检 |
 | TracingPolicy(真实 Tetragon v1.8.0 / k8s v1.37 集群) | ✅ 2026-11-23 验证,真实流 Top-1 0.813 / Top-3 0.948 |
+| OpenShell Agent 场景(RFC 0001:coding/data/ops + 发布流水线拦截闭环) | ✅ 全过,Top-3 0.94+,攻击覆盖 1.0,转账发布被 BLOCKED |
 | kind 脚本 | ⚠️ 已提供,未实际使用(已有现成集群) |
 | Jev / Decision Controller / 多租户 / OTEL | ⏭ P3/P4,未实现 |
 

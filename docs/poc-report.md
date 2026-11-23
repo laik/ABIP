@@ -91,9 +91,14 @@ Integration findings fixed along the way (all covered by tests now):
 7. **`syscall: true` kprobes produce no events when combined with `matchWorkloads` selectors**
    on Tetragon v1.8.0 / kernel 6.12. Use kernel functions with `syscall: false`
    (`do_sys_openat2` instead of `sys_openat`); the repo policy is updated accordingly.
-8. `commit_creds` fires on **every execve** (normal kernel credential setup), so
-   `capability_change` counts are dominated by benign noise — P3 risk triggering must
-   down-weight it and rely on `sys_setuid`-class signals.
+8. `commit_creds` fires on **every execve** (normal kernel credential setup) with a
+   **transient exec_id** distinct from the resulting process_exec, creating phantom
+   single-event processes. The Collector filters this noise (unknown exec_id + known
+   same-binary parent); genuine in-lifetime credential changes are kept.
+9. OpenShell agent scenario validation (RFC 0001, 4 scenarios incl. a 3-role release
+   pipeline with a compromised-AI interception loop) all passed on the real cluster:
+   baseline Top-3 0.940/0.966/0.945, two-layer attack coverage 1.0, zero false blocks,
+   transfer-service publish BLOCKED. See [rfc/0001](rfc/0001-openshell-agent-behavior-scenarios.md).
 
 ## 8. Unverified / known limitations
 
