@@ -82,8 +82,18 @@ class StreamInferencer:
             return None
 
         st = self.states.get(exec_id)
+        if st is None:
+            st = ProcState(self.engine.seq_len)
+            # Process Tree Context(v1.0 §4):子进程继承父进程当前 LSTM 状态与预测,
+            # 使派生链(python→sh→nc)的第一个事件也可评分,攻击链检测不留盲区。
+            parent = self.states.get(ev["process"].get("parent_exec_id", ""))
+            if parent is not None and parent.hidden is not None:
+                st.hidden = tuple(t.clone() for t in parent.hidden)
+                if parent.pending is not None:
+                    st.pending = parent.pending.clone()
+            self.states[exec_id] = st
         record = None
-        if st is not None and st.pending is not None:
+        if st.pending is not None:
             probs = torch.softmax(st.pending, dim=-1)
             top3 = probs.topk(min(3, probs.shape[-1])).indices.tolist()
             score = anomaly_score(st.pending, actual)
@@ -115,16 +125,6 @@ class StreamInferencer:
             }
             self.records.append(record)
 
-        if st is None:
-            st = ProcState(self.engine.seq_len)
-            # Process Tree Context(v1.0 §4):子进程继承父进程当前 LSTM 状态与预测,
-            # 使派生链(python→sh→nc)的第一个事件也可评分,攻击链检测不留盲区。
-            parent = self.states.get(ev["process"].get("parent_exec_id", ""))
-            if parent is not None and parent.hidden is not None:
-                st.hidden = tuple(t.clone() for t in parent.hidden)
-                if parent.pending is not None:
-                    st.pending = parent.pending.clone()
-            self.states[exec_id] = st
         cat, num = self.engine.tensors(ev, st.last_ts)
         logits, st.hidden = self.model.step(cat, num, st.hidden)
         st.buffer.append((cat, num))
