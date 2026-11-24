@@ -151,7 +151,7 @@ def mutate_reparent(events, rng, n):
     return evs, truth
 
 
-def run_scenario(name, n, seed):
+def run_scenario(name, n, seed, lolbin=False):
     path, registry = PATHS[name]
     events = [json.loads(l) for l in open(path)]
     rng = random.Random(seed)
@@ -165,7 +165,10 @@ def run_scenario(name, n, seed):
         base_by_exec.setdefault(r["exec_id"], []).append(r["anomaly_score"])
 
     dims = {}
-    for dim in ("M1", "M2", "M3", "M4", "M8"):
+    # LOLBin 约束(RFC 0004 S18):禁用身份替换,身份层全盲,
+    # 资源/目的地/权限层必须独立承载检测。
+    flag_dims = ("M2", "M3", "M4", "M8") if lolbin else ("M1", "M2", "M3", "M4", "M8")
+    for dim in flag_dims:
         evs, truth = mutate_flags(events, rng, n, dim)
         inf = score(registry, evs)
         dims[dim] = {"coverage": flag_coverage(inf, truth), "n": len(truth)}
@@ -191,8 +194,9 @@ def run_scenario(name, n, seed):
     evs = copy.deepcopy(events)
     truth = set()
     pool = [e for e in evs if e["event"]["type"] in ("file_open", "network_connect")]
+    blind_kinds = ["M2", "M3", "M4"] if lolbin else ["M1", "M2", "M3", "M4"]
     for i, e in enumerate(rng.sample(pool, min(100, len(pool)))):
-        kind = rng.choice(["M1", "M2", "M3", "M4"])
+        kind = rng.choice(blind_kinds)
         if kind == "M1":
             e["process"]["binary"] = rng.choice(UNKNOWN_BINARIES)
         elif kind in ("M2", "M3"):
@@ -209,11 +213,12 @@ def run_scenario(name, n, seed):
     blind_rate = sum(bool(r["risk_context"]) or r["anomaly_score"] > base_p90 for r in recs) / len(recs) if recs else 0.0
 
     gates = {
-        "deterministic_coverage_eq_1": all(dims[d]["coverage"] == 1.0 for d in ("M1", "M2", "M3", "M4", "M8")),
+        "deterministic_coverage_eq_1": all(dims[d]["coverage"] == 1.0 for d in flag_dims),
         "sequence_elevation_ge_1.2": dims["M5"]["elevation"] >= 1.2,
         "burst_elevation_ge_1.2": dims["M6"]["elevation"] >= 1.2,
     }
     return {
+        "lolbin": lolbin,
         "baseline_mean_anomaly": round(base_mean, 3),
         "baseline_p90": round(base_p90, 3),
         "dimensions": dims,
@@ -229,15 +234,17 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--n", type=int, default=30)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--lolbin", action="store_true", help="S18: disable identity mutations")
     args = ap.parse_args()
     result = {}
     for s in args.scenarios:
         if not Path(PATHS[s][0]).exists():
             print(f"skip {s}: no baseline ({PATHS[s][0]})")
             continue
-        result[s] = run_scenario(s, args.n, args.seed)
+        result[s] = run_scenario(s, args.n, args.seed, args.lolbin)
         d = result[s]["dimensions"]
-        print(f"{s}: M1-M4,M8 cov=" + ",".join(f"{d[k]['coverage']:.2f}" for k in ("M1", "M2", "M3", "M4", "M8"))
+        cov_dims = ("M2", "M3", "M4", "M8") if args.lolbin else ("M1", "M2", "M3", "M4", "M8")
+        print(f"{s}: cov=" + ",".join(f"{d[k]['coverage']:.2f}" for k in cov_dims)
               + f" | M5 elev={d['M5']['elevation']} M6 elev={d['M6']['elevation']}"
               + f" M7>p90={d['M7']['above_p90_ratio']:.2f} | blind={result[s]['blind_detection_rate']}"
               + f" | passed={result[s]['passed']}")

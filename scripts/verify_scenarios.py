@@ -20,6 +20,10 @@ SIGNATURES = {
     "supply": {"paths": [], "binaries": ["evil"], "dests": ["203.0.113.9"]},
     "persist": {"paths": ["/etc/cron", "/root/.ssh"], "binaries": [".hidden"], "dests": []},
     "lateral": {"paths": ["/proc/net"], "binaries": ["nc"], "dests": []},
+    "beacon": {"paths": [], "binaries": [], "dests": ["203.0.113.9"]},
+    "mining": {"paths": [], "binaries": ["xmrig", "nc"], "dests": ["203.0.113.9"]},
+    "inject": {"paths": [], "binaries": [], "dests": ["203.0.113.9"]},
+    "escape": {"paths": ["/proc/sysrq", "release_agent"], "binaries": ["nsenter"], "dests": []},
 }
 
 
