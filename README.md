@@ -52,6 +52,7 @@ feeds Jev in P3. Deterministic rules take precedence over model judgment.
 | OpenShell agent scenarios (RFC 0001/0002: coding/data/ops/supply/persist/lateral + release-pipeline interception) | ✅ all passed, Top-3 0.90+, attack coverage 1.0, transfer publish BLOCKED |
 | Mutation coverage engine (RFC 0002: 8 deviation dims + blind, 7 real profiles) | ✅ deterministic dims 1.00, blind 1.0; timing/sequence gaps documented |
 | Ransomware data-lock interception (RFC 0003 S8, real-incident modeled) | ✅ BLOCKED before destruction, database intact (zero loss) |
+| Second-wave scenarios (RFC 0004: beacon/mining/inject/escape + LOLBin) | ✅ all passed, own Top-3 0.86+, coverage 1.0; dual-semantics tree model |
 | kind scripts | ⚠️ provided, unexercised (real cluster already existed) |
 | Jev / Decision Controller / multi-tenancy / OTEL | ⏭ P3/P4, not implemented |
 
