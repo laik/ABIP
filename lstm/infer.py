@@ -23,13 +23,20 @@ from .registry import Registry
 
 
 class ProcState:
-    __slots__ = ("hidden", "last_ts", "buffer", "pending")
+    """双语义状态(RFC 0004):own(tree_context=0,进程自身流)与
+    tree(tree_context=1,父树流,下一事件含子进程诞生)。
+    同一"exec 之后"上下文在两种流中下一事件分布不同,角色位消除冲突。"""
 
-    def __init__(self, seq_len):
+    __slots__ = ("hidden", "pending", "htree", "ptree", "last_ts", "buffer", "is_root")
+
+    def __init__(self, seq_len, is_root):
         self.hidden = None
+        self.pending = None
+        self.htree = None
+        self.ptree = None
         self.last_ts = None
-        self.buffer = deque(maxlen=seq_len)  # (cat, num) 编码后事件,用于模型切换重放
-        self.pending = None  # 上一步对"下一事件"的预测分布
+        self.buffer = deque(maxlen=seq_len)  # tree=0 基张量,ctx 重放用
+        self.is_root = is_root
 
 
 class StreamInferencer:
@@ -61,13 +68,19 @@ class StreamInferencer:
         self.model, self.meta = self.reg.load(v)
         self.switches.append({"from": self.version, "to": v})
         self.version = v
-        # 旧 Hidden State 不能交给新模型:用每个进程的事件缓冲重放重建。
+        # 旧 Hidden State 不能交给新模型:用每个进程的事件缓冲重放重建(own/tree 双状态)。
+        ti = self.engine.num_fields.index("tree_context")
         for st in self.states.values():
-            st.hidden = None
-            st.pending = None
+            st.hidden = st.htree = None
+            st.pending = st.ptree = None
+            lg = lg1 = None
             for cat, num in st.buffer:
-                logits, st.hidden = self.model.step(cat, num, st.hidden)
-            st.pending = logits if st.buffer else None
+                lg, st.hidden = self.model.step(cat, num, st.hidden)
+                n1 = num.clone()
+                n1[ti] = 1.0
+                lg1, st.htree = self.model.step(cat, n1, st.htree)
+            if st.buffer:
+                st.pending, st.ptree = lg, lg1
             self.rebuilds += 1
 
     def feed(self, ev: dict) -> dict | None:
@@ -82,26 +95,30 @@ class StreamInferencer:
             return None
 
         st = self.states.get(exec_id)
-        parent = None
-        is_birth = False
+        parent = self.states.get(ev["process"].get("parent_exec_id", ""))
+        is_birth = st is None and parent is not None
+        ti = self.engine.num_fields.index("tree_context")
         if st is None:
-            st = ProcState(self.engine.seq_len)
-            # Process Tree Context(v1.0 §4):用父进程最近 N 个事件(含既往诞生)
-            # 从零重放初始化子进程——与训练子样本的 ctx 构造逐位一致。
-            parent = self.states.get(ev["process"].get("parent_exec_id", ""))
-            is_birth = parent is not None
+            st = ProcState(self.engine.seq_len, is_root=parent is None)
+            # 父进程最近 N 个事件从零重放初始化,own/tree 各一遍,
+            # 与训练两类样本的 ctx 构造逐位一致。
             if parent is not None and parent.buffer:
                 ctx_n = self.engine.schema["training"].get("tree_context_events", 16)
-                logits = None
+                lg = lg1 = None
                 for cat, num in list(parent.buffer)[-ctx_n:]:
-                    logits, st.hidden = self.model.step(cat, num, st.hidden)
-                st.pending = logits
+                    lg, st.hidden = self.model.step(cat, num, st.hidden)
+                    n1 = num.clone()
+                    n1[ti] = 1.0
+                    lg1, st.htree = self.model.step(cat, n1, st.htree)
+                st.pending, st.ptree = lg, lg1
             self.states[exec_id] = st
         record = None
-        if st.pending is not None:
-            probs = torch.softmax(st.pending, dim=-1)
+        # 诞生评分用父 tree 语义;自身事件:根进程用 tree,子进程用 own。
+        prior = parent.ptree if is_birth else (st.ptree if st.is_root else st.pending)
+        if prior is not None:
+            probs = torch.softmax(prior, dim=-1)
             top3 = probs.topk(min(3, probs.shape[-1])).indices.tolist()
-            score = anomaly_score(st.pending, actual)
+            score = anomaly_score(prior, actual)
             # 确定性 Risk Context(v1.0 §7.2 风险触发信号):敏感资源/外联/权限变化
             # 不依赖 LSTM 惊讶度,确定性规则优先于模型判断。
             flags = []
@@ -139,18 +156,24 @@ class StreamInferencer:
 
         cat, num = self.engine.tensors(ev, st.last_ts)
         logits, st.hidden = self.model.step(cat, num, st.hidden)
+        st.pending = logits
+        num1 = num.clone()
+        num1[ti] = 1.0
+        logits1, st.htree = self.model.step(cat, num1, st.htree)
+        st.ptree = logits1
         st.buffer.append((cat, num))
         st.last_ts = ts
-        st.pending = logits
 
-        # 诞生事件同时推进父进程状态(父样本训练时 interleaved 了诞生),
-        # 父进程的下一事件分布始终反映树的真实历史。
+        # 诞生事件推进父进程 tree 状态(父 merged 样本 interleaved 了诞生);
+        # 缓冲存 tree=0 基张量,供子进程 ctx 重放(与训练 ctx 编码一致)。
         if is_birth and parent is not None:
             pcat, pnum = self.engine.tensors(ev, parent.last_ts)
-            plg, parent.hidden = self.model.step(pcat, pnum, parent.hidden)
+            pnum1 = pnum.clone()
+            pnum1[ti] = 1.0
+            plg, parent.htree = self.model.step(pcat, pnum1, parent.htree)
+            parent.ptree = plg
             parent.buffer.append((pcat, pnum))
             parent.last_ts = ts
-            parent.pending = plg
 
         if kind == "process_exit":
             del self.states[exec_id]  # 退出关闭状态

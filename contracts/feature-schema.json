@@ -116,6 +116,10 @@
     ]
   },
   "numeric": {
+    "tree_context": {
+      "clip": 1,
+      "scale": 1
+    },
     "process_depth": {
       "clip": 10,
       "scale": 10

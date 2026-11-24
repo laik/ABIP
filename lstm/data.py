@@ -36,10 +36,13 @@ def load_sequences(path: str) -> dict[str, list[dict]]:
     return seqs
 
 
-def _encode(events, engine, prev=None):
+def _encode(events, engine, prev=None, tree_ctx=0):
     cats, nums, types, tss = [], [], [], []
+    ti = engine.num_fields.index("tree_context")
     for ev in events:
         c, n = engine.tensors(ev, prev)
+        if tree_ctx:
+            n[ti] = float(tree_ctx)
         cats.append(c)
         nums.append(n)
         types.append(engine.vocab["event_type"].get(ev["event"]["type"], 0))
@@ -96,20 +99,24 @@ def build_samples(seqs: dict[str, list[dict]], engine: FeatureEngine) -> list[Sa
 
     samples = []
     for eid, seq in seqs.items():
-        # 父/自身样本:interleaved 序列,全部位置有标签
-        cats, nums, types, tss = _encode(merged[eid], engine)
-        samples += _windows(cats, nums, types, tss, engine)
-        # 子样本:ctx = 父 merged 中诞生前最近 ctx_n 个事件;只训子进程内部转移
         pid = seq[0]["process"].get("parent_exec_id", "")
-        if pid in merged and len(seq) >= 2:
+        ctx = []
+        if pid in merged:
             birth_ts = parse_ts(seq[0]["event_time"])
             ctx = [e for e in merged[pid] if parse_ts(e["event_time"]) < birth_ts][-ctx_n:]
-            if ctx:
-                cc, cn, ct, tt = _encode(ctx, engine)
-                sc, sn, st_, tt2 = _encode(seq, engine)  # 子进程首事件 delta=0
-                samples += _windows(
-                    cc + sc, cn + sn, ct + st_, tt + tt2, engine, mask_prefix=len(ctx)
-                )
+        # tree 样本(bit=1):ctx + 自身事件与诞生 interleaved;
+        # ctx 内部已在父样本训练,mask 掉;边界(诞生)与父样本同语义,互相强化。
+        cc, cn, ct, tt = _encode(ctx, engine, tree_ctx=1)
+        mc, mn, mt, mtt = _encode(merged[eid], engine, tree_ctx=1)
+        samples += _windows(cc + mc, cn + mn, ct + mt, tt + mtt, engine, mask_prefix=len(ctx))
+        # own 样本(bit=0,仅子进程):ctx + 自身序列;ctx 与边界都 mask
+        # (边界=诞生,推理时用父 tree 语义评分,不在 own 流训练)。
+        if ctx and len(seq) >= 2:
+            oc, on, ot, ott = _encode(ctx, engine, tree_ctx=0)
+            sc, sn, st_, stt = _encode(seq, engine, tree_ctx=0)  # 首事件 delta=0
+            samples += _windows(
+                oc + sc, on + sn, ot + st_, ott + stt, engine, mask_prefix=len(ctx) + 1
+            )
     samples.sort(key=lambda s: s.end_ts)
     return samples
 

@@ -112,6 +112,9 @@ class FeatureEngine:
         dt = 0.0 if prev_ts is None else max(0.0, ts - prev_ts)
         dt = min(dt, self.schema["numeric"]["time_delta"]["clip"])
         num = {
+            # 角色位:父树流=1(下一事件含子进程诞生),子自身流=0。
+            # 消除"exec 之后"在两种流中的语义冲突(RFC 0004 beacon 分析)。
+            "tree_context": 0.0,
             "process_depth": depth / self.schema["numeric"]["process_depth"]["scale"],
             "time_delta": math.log1p(dt) / self.schema["numeric"]["time_delta"]["scale"],
         }
