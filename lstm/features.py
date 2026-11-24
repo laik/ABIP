@@ -115,6 +115,9 @@ class FeatureEngine:
             # 角色位:父树流=1(下一事件含子进程诞生),子自身流=0。
             # 消除"exec 之后"在两种流中的语义冲突(RFC 0004 beacon 分析)。
             "tree_context": 0.0,
+            # 流属主深度:区分父树流(owner=父 depth)与子树流(owner=子 depth),
+            # 同一"exec 之后"上下文在不同属主流中下一事件语义不同。
+            "owner_depth": 0.0,
             "process_depth": depth / self.schema["numeric"]["process_depth"]["scale"],
             "time_delta": math.log1p(dt) / self.schema["numeric"]["time_delta"]["scale"],
         }

@@ -36,13 +36,16 @@ def load_sequences(path: str) -> dict[str, list[dict]]:
     return seqs
 
 
-def _encode(events, engine, prev=None, tree_ctx=0):
+def _encode(events, engine, prev=None, tree_ctx=0, owner_depth=0):
     cats, nums, types, tss = [], [], [], []
     ti = engine.num_fields.index("tree_context")
+    oi = engine.num_fields.index("owner_depth")
+    od = min(owner_depth, engine.schema["numeric"]["owner_depth"]["clip"])
+    od /= engine.schema["numeric"]["owner_depth"]["scale"]
     for ev in events:
         c, n = engine.tensors(ev, prev)
-        if tree_ctx:
-            n[ti] = float(tree_ctx)
+        n[ti] = float(tree_ctx)
+        n[oi] = od
         cats.append(c)
         nums.append(n)
         types.append(engine.vocab["event_type"].get(ev["event"]["type"], 0))
@@ -104,17 +107,17 @@ def build_samples(seqs: dict[str, list[dict]], engine: FeatureEngine) -> list[Sa
         if pid in merged:
             birth_ts = parse_ts(seq[0]["event_time"])
             ctx = [e for e in merged[pid] if parse_ts(e["event_time"]) < birth_ts][-ctx_n:]
-        # tree 样本(bit=1):ctx + 自身事件与诞生 interleaved;
+        owner = seq[0]["process"].get("depth", 0)
+        # tree 样本(bit=1,owner=本进程 depth):ctx + 自身事件与诞生 interleaved;
         # ctx 内部已在父样本训练,mask 掉;边界(诞生)与父样本同语义,互相强化。
-        cc, cn, ct, tt = _encode(ctx, engine, tree_ctx=1)
-        mc, mn, mt, mtt = _encode(merged[eid], engine, tree_ctx=1)
+        cc, cn, ct, tt = _encode(ctx, engine, tree_ctx=1, owner_depth=owner)
+        mc, mn, mt, mtt = _encode(merged[eid], engine, tree_ctx=1, owner_depth=owner)
         samples += _windows(cc + mc, cn + mn, ct + mt, tt + mtt, engine, mask_prefix=len(ctx))
         # own 样本(bit=0,仅子进程):ctx + 自身序列;只 mask ctx 内部。
-        # 边界与内部转移都训练——短命子进程(exec+exit)否则零标签,
-        # exit 评分不校准(lateral 回归的根因)。bit 已区分语义,无冲突。
+        # 边界与内部转移都训练——短命子进程(exec+exit)否则零标签。
         if ctx and len(seq) >= 2:
-            oc, on, ot, ott = _encode(ctx, engine, tree_ctx=0)
-            sc, sn, st_, stt = _encode(seq, engine, tree_ctx=0)  # 首事件 delta=0
+            oc, on, ot, ott = _encode(ctx, engine, tree_ctx=0, owner_depth=owner)
+            sc, sn, st_, stt = _encode(seq, engine, tree_ctx=0, owner_depth=owner)
             samples += _windows(
                 oc + sc, on + sn, ot + st_, ott + stt, engine, mask_prefix=len(ctx)
             )

@@ -120,6 +120,10 @@
       "clip": 1,
       "scale": 1
     },
+    "owner_depth": {
+      "clip": 10,
+      "scale": 10
+    },
     "process_depth": {
       "clip": 10,
       "scale": 10

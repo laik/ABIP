@@ -27,16 +27,18 @@ class ProcState:
     tree(tree_context=1,父树流,下一事件含子进程诞生)。
     同一"exec 之后"上下文在两种流中下一事件分布不同,角色位消除冲突。"""
 
-    __slots__ = ("hidden", "pending", "htree", "ptree", "last_ts", "buffer", "is_root")
+    __slots__ = ("hidden", "pending", "htree", "ptree", "last_ts", "buffer", "is_root",
+                 "owner_depth")
 
-    def __init__(self, seq_len, is_root):
+    def __init__(self, seq_len, is_root, owner_depth):
         self.hidden = None
         self.pending = None
         self.htree = None
         self.ptree = None
         self.last_ts = None
-        self.buffer = deque(maxlen=seq_len)  # tree=0 基张量,ctx 重放用
+        self.buffer = deque(maxlen=seq_len)  # 基张量(tree/owner 位清零),ctx 重放用
         self.is_root = is_root
+        self.owner_depth = owner_depth
 
 
 class StreamInferencer:
@@ -70,14 +72,18 @@ class StreamInferencer:
         self.version = v
         # 旧 Hidden State 不能交给新模型:用每个进程的事件缓冲重放重建(own/tree 双状态)。
         ti = self.engine.num_fields.index("tree_context")
+        oi = self.engine.num_fields.index("owner_depth")
         for st in self.states.values():
             st.hidden = st.htree = None
             st.pending = st.ptree = None
             lg = lg1 = None
             for cat, num in st.buffer:
-                lg, st.hidden = self.model.step(cat, num, st.hidden)
+                n0 = num.clone()
+                n0[oi] = st.owner_depth
+                lg, st.hidden = self.model.step(cat, n0, st.hidden)
                 n1 = num.clone()
                 n1[ti] = 1.0
+                n1[oi] = st.owner_depth
                 lg1, st.htree = self.model.step(cat, n1, st.htree)
             if st.buffer:
                 st.pending, st.ptree = lg, lg1
@@ -98,17 +104,22 @@ class StreamInferencer:
         parent = self.states.get(ev["process"].get("parent_exec_id", ""))
         is_birth = st is None and parent is not None
         ti = self.engine.num_fields.index("tree_context")
+        oi = self.engine.num_fields.index("owner_depth")
+        od = min(ev["process"].get("depth", 0), 10) / 10.0
         if st is None:
-            st = ProcState(self.engine.seq_len, is_root=parent is None)
+            st = ProcState(self.engine.seq_len, is_root=parent is None, owner_depth=od)
             # 父进程最近 N 个事件从零重放初始化,own/tree 各一遍,
-            # 与训练两类样本的 ctx 构造逐位一致。
+            # 角色位(tree/owner)按本进程设置——与训练样本构造逐位一致。
             if parent is not None and parent.buffer:
                 ctx_n = self.engine.schema["training"].get("tree_context_events", 16)
                 lg = lg1 = None
                 for cat, num in list(parent.buffer)[-ctx_n:]:
-                    lg, st.hidden = self.model.step(cat, num, st.hidden)
+                    n0 = num.clone()
+                    n0[oi] = od
+                    lg, st.hidden = self.model.step(cat, n0, st.hidden)
                     n1 = num.clone()
                     n1[ti] = 1.0
+                    n1[oi] = od
                     lg1, st.htree = self.model.step(cat, n1, st.htree)
                 st.pending, st.ptree = lg, lg1
             self.states[exec_id] = st
@@ -155,21 +166,23 @@ class StreamInferencer:
             self.records.append(record)
 
         cat, num = self.engine.tensors(ev, st.last_ts)
+        num[oi] = st.owner_depth
         logits, st.hidden = self.model.step(cat, num, st.hidden)
         st.pending = logits
         num1 = num.clone()
         num1[ti] = 1.0
         logits1, st.htree = self.model.step(cat, num1, st.htree)
         st.ptree = logits1
+        num[oi] = 0.0  # 缓冲存基张量,重放时按属主重新设位
         st.buffer.append((cat, num))
         st.last_ts = ts
 
-        # 诞生事件推进父进程 tree 状态(父 merged 样本 interleaved 了诞生);
-        # 缓冲存 tree=0 基张量,供子进程 ctx 重放(与训练 ctx 编码一致)。
+        # 诞生事件推进父进程 tree 状态(owner=父 depth);缓冲存基张量。
         if is_birth and parent is not None:
             pcat, pnum = self.engine.tensors(ev, parent.last_ts)
             pnum1 = pnum.clone()
             pnum1[ti] = 1.0
+            pnum1[oi] = parent.owner_depth
             plg, parent.htree = self.model.step(pcat, pnum1, parent.htree)
             parent.ptree = plg
             parent.buffer.append((pcat, pnum))
