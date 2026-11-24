@@ -109,13 +109,14 @@ def build_samples(seqs: dict[str, list[dict]], engine: FeatureEngine) -> list[Sa
         cc, cn, ct, tt = _encode(ctx, engine, tree_ctx=1)
         mc, mn, mt, mtt = _encode(merged[eid], engine, tree_ctx=1)
         samples += _windows(cc + mc, cn + mn, ct + mt, tt + mtt, engine, mask_prefix=len(ctx))
-        # own 样本(bit=0,仅子进程):ctx + 自身序列;ctx 与边界都 mask
-        # (边界=诞生,推理时用父 tree 语义评分,不在 own 流训练)。
+        # own 样本(bit=0,仅子进程):ctx + 自身序列;只 mask ctx 内部。
+        # 边界与内部转移都训练——短命子进程(exec+exit)否则零标签,
+        # exit 评分不校准(lateral 回归的根因)。bit 已区分语义,无冲突。
         if ctx and len(seq) >= 2:
             oc, on, ot, ott = _encode(ctx, engine, tree_ctx=0)
             sc, sn, st_, stt = _encode(seq, engine, tree_ctx=0)  # 首事件 delta=0
             samples += _windows(
-                oc + sc, on + sn, ot + st_, ott + stt, engine, mask_prefix=len(ctx) + 1
+                oc + sc, on + sn, ot + st_, ott + stt, engine, mask_prefix=len(ctx)
             )
     samples.sort(key=lambda s: s.end_ts)
     return samples
