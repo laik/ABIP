@@ -14,8 +14,18 @@ TPOD=$(kubectl -n kube-system get pods -l app.kubernetes.io/name=tetragon \
 [ -n "$TPOD" ] || { echo "no tetragon pod on vm02"; exit 1; }
 kubectl apply -f deployment/openshell/scenario-scripts.yaml
 
+wait_pod() {
+  local name=$1 i=0
+  while [ $i -lt 30 ]; do
+    kubectl -n $NS get pod "$name" >/dev/null 2>&1 && break
+    sleep 1; i=$((i+1))
+  done
+  kubectl -n $NS wait --for=condition=Ready "pod/$name" --timeout=90s
+}
+
 run_release() {
   local MODE=$1 NAME=abip-release-$1
+  rm -f "data/decision-release-$MODE.json" "data/release-$MODE.log" "data/evidence-release-$MODE.json"
   kubectl -n $NS delete sandbox "$NAME" --ignore-not-found --wait=true --timeout=60s >/dev/null 2>&1
   sleep 2
   timeout 120 kubectl -n kube-system exec "$TPOD" -c tetragon -- tetra getevents -o json \
@@ -45,7 +55,7 @@ spec:
         - name: scripts
           configMap: {name: abip-scenario-scripts}
 EOF
-  kubectl -n $NS wait --for=condition=Ready "pod/$NAME" --timeout=90s || return 1
+  wait_pod "$NAME" || return 1
   sleep 35   # config 8 轮×~3s + publish 准备完成,进入决策等待窗口(45s)
   kill $CAP 2>/dev/null; wait $CAP 2>/dev/null
   $PY - "$NAME" "data/raw-release-$MODE.jsonl" "data/events-release-$MODE.jsonl" <<'PY'

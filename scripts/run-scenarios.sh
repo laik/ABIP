@@ -17,8 +17,14 @@ kubectl apply -f deployment/openshell/scenario-scripts.yaml
 
 run_one() {
   local S=$1 MODE=$2 NAME=abip-$1-$2
+  rm -f "data/scenario-$S-report.json"
   kubectl -n $NS delete sandbox "$NAME" --ignore-not-found --wait=true --timeout=60s >/dev/null 2>&1
   sleep 2
+  local i=0
+  while [ $i -lt 30 ]; do
+    kubectl -n $NS get pod "$NAME" >/dev/null 2>&1 && break
+    sleep 1; i=$((i+1))
+  done
   timeout 150 kubectl -n kube-system exec "$TPOD" -c tetragon -- tetra getevents -o json \
     > "data/raw-$S-$MODE.jsonl" 2>/dev/null &
   local CAP=$!
@@ -67,7 +73,8 @@ PY
   kubectl -n $NS delete sandbox "$NAME" --wait=false >/dev/null 2>&1
 }
 
-for S in ${SCENARIOS:-coding data ops}; do
+export SCENARIOS="${SCENARIOS:-coding data ops supply persist lateral beacon mining inject escape}"
+for S in $SCENARIOS; do
   echo "=== scenario: $S ==="
   run_one "$S" baseline
   run_one "$S" attack
@@ -81,19 +88,18 @@ done
 $PY - <<'PY'
 import json
 summary = {}
-import glob, os
-for f in sorted(glob.glob("data/scenario-*-report.json")):
-    s = os.path.basename(f)[len("scenario-"):-len("-report.json")]
+import os
+for s in os.environ.get("SCENARIOS", "coding data ops").split():
     try:
-        r = json.load(open(f))
+        r = json.load(open(f"data/scenario-{s}-report.json"))
         summary[s] = {"passed": r["passed"], "gates": r["gates"],
                       "baseline_top3": round(r["baseline"]["top3"], 3),
                       "risk_coverage": r["attack"]["risk_context_coverage"],
                       "chain_exec_anomaly": round(r["attack"].get("chain_exec_anomaly",
                                                           r["attack"].get("nc_exec_anomaly", 0)), 3),
                       "baseline_p90": round(r["baseline"]["anomaly_p90"], 3)}
-    except (KeyError, ValueError):
-        summary[s] = {"passed": False, "error": "bad report"}
+    except (FileNotFoundError, KeyError, ValueError):
+        summary[s] = {"passed": False, "error": "missing/bad report"}
 json.dump(summary, open("data/scenario-report.json", "w"), indent=2)
 print(json.dumps(summary, indent=2))
 print("ALL PASSED" if all(v.get("passed") for v in summary.values()) else "SOME GATES FAILED")
