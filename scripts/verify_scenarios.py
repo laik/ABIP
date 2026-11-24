@@ -89,11 +89,21 @@ def main():
             if "sensitive_resource" in r["risk_context"]:
                 fp += 1
 
+    # 指标定义(RFC 0004):profile 可学习性 = own 序列预测;top3 门槛考核 own。
+    # birth(诞生)评分服务于攻击链检测,由两层覆盖门槛考核,单独报告不混入。
+    base_recs = inf.records[:n_base]
+    own_recs = [r for r in base_recs if not r.get("birth")]
+    birth_recs = [r for r in base_recs if r.get("birth")]
+    mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
+    own_top3 = mean([r["top3_hit"] for r in own_recs])
+    birth_top3 = mean([r["top3_hit"] for r in birth_recs])
     report = {
         "baseline": {
             "events_scored": base["events_scored"],
             "top1": base["top1_accuracy"],
             "top3": base["top3_accuracy"],
+            "own_top3": own_top3,
+            "birth_top3": birth_top3,
             "mean_anomaly": base["mean_cross_entropy"],
             "anomaly_p90": base["anomaly_score_p90"],
         },
@@ -114,7 +124,7 @@ def main():
         "gates": {},
     }
     g = report["gates"]
-    g["baseline_top3_ge_0.80"] = base["top3_accuracy"] >= 0.80
+    g["baseline_own_top3_ge_0.80"] = own_top3 >= 0.80
     g["two_layer_coverage_eq_1"] = report["attack"]["two_layer_coverage"] == 1.0
     g["no_passwd_false_positive"] = fp == 0
     report["passed"] = all(g.values())

@@ -94,6 +94,8 @@ for s in os.environ.get("SCENARIOS", "coding data ops").split():
         r = json.load(open(f"data/scenario-{s}-report.json"))
         summary[s] = {"passed": r["passed"], "gates": r["gates"],
                       "baseline_top3": round(r["baseline"]["top3"], 3),
+                      "own_top3": round(r["baseline"].get("own_top3", r["baseline"]["top3"]), 3),
+                      "birth_top3": round(r["baseline"].get("birth_top3", 0), 3),
                       "risk_coverage": r["attack"]["risk_context_coverage"],
                       "chain_exec_anomaly": round(r["attack"].get("chain_exec_anomaly",
                                                           r["attack"].get("nc_exec_anomaly", 0)), 3),

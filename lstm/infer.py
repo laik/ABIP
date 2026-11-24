@@ -159,6 +159,7 @@ class StreamInferencer:
                 "correct": int(probs.argmax()) == actual,
                 "top3_hit": actual in top3,
                 "model_version": self.version,
+                "birth": is_birth,
                 "risk_context": flags,
                 "is_anomaly_truth": key in self.truth,
                 "truth_type": self.truth.get(key),
